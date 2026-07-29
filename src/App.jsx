@@ -215,7 +215,7 @@ function Header({ tabKey, title, onBack, right, month, setMonth }) {
         <div style={{ width: "24px", display: "flex", justifyContent: "flex-end" }}>{right}</div>
       </div>
       {tabKey === "home" && month && setMonth && (
-        <div style={{ marginTop: "10px", display: "flex", justifyContent: "center" }}>
+        <div style={{ marginTop: "10px", display: "flex", justifyContent: "flex-start" }}>
           <div style={{ position: "relative", display: "inline-block" }}>
             <select
               value={month}
