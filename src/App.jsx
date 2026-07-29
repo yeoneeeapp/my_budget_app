@@ -272,6 +272,12 @@ const REPAYMENT_TYPES = ["원리금균등상환", "원금균등상환", "만기�
 
 const installmentsSeed = [];
 
+const WEEKDAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
+function weekdayLabel(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return WEEKDAY_KO[new Date(y, m - 1, d).getDay()];
+}
+
 function buildMonthLabel(monthKey) {
   const [y, m] = monthKey.split("-");
   return `${y}년 ${parseInt(m, 10)}월`;
@@ -845,7 +851,9 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
 
           {Object.entries(grouped).map(([date, items]) => (
             <div key={date} style={{ marginBottom: "10px" }}>
-              <div style={{ fontSize: "12px", color: C.inkSoft, marginBottom: "6px" }}>{date.slice(5).replace("-", "월 ")}일</div>
+              <div style={{ fontSize: "12px", color: C.inkSoft, marginBottom: "6px" }}>
+                {date.slice(5).replace("-", "월 ")}일 ({weekdayLabel(date)})
+              </div>
               {items.map((t) => {
                 const Icon = CAT_ICON[t.category] || Wallet;
                 return (
