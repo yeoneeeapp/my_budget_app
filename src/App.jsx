@@ -728,7 +728,7 @@ function WeeklyView({ month, tx }) {
 
 
 function MonthlyListView({ txAll, goMonth }) {
-  const rows = MONTHS.map((m) => {
+  const rows = GENERATED_MONTHS.map((m) => {
     const items = txAll[m] || [];
     const income = items.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
     const expense = items.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
@@ -1180,12 +1180,10 @@ function CardDetailScreen({ card, tx, txAll, onEdit }) {
   const prepaidTotal = cardTx.filter((t) => t.type === "expense" && !t.canceled && t.prepaid).reduce((s, t) => s + t.amount, 0);
   const dueAmount = total - prepaidTotal;
 
-  const monthlyTotals = MONTHS.slice()
-    .reverse()
-    .map((m) => {
-      const items = (txAll[m] || []).filter((t) => t.type === "expense" && !t.canceled && t.method === card.method);
-      return { m, total: items.reduce((s, t) => s + t.amount, 0), items };
-    });
+  const monthlyTotals = GENERATED_MONTHS.map((m) => {
+    const items = (txAll[m] || []).filter((t) => t.type === "expense" && !t.canceled && t.method === card.method);
+    return { m, total: items.reduce((s, t) => s + t.amount, 0), items };
+  });
 
   return (
     <div style={{ padding: "12px 16px 16px" }}>
@@ -1372,14 +1370,11 @@ function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
 function LoanDetailScreen({ loan, txAll, accounts, onPayoff, onEdit }) {
   if (!loan) return null;
   const linkedAccount = accounts.find((a) => a.id === loan.linkedAccountId);
-  const interestHistory = MONTHS.slice()
-    .reverse()
-    .map((m) => {
-      const items = (txAll[m] || []).filter((t) => t.id === "l" + loan.id + "-" + m);
-      const amt = items.reduce((s, t) => s + t.amount, 0);
-      return { m, amt };
-    })
-    .filter((h) => h.amt > 0);
+  const interestHistory = GENERATED_MONTHS.map((m) => {
+    const items = (txAll[m] || []).filter((t) => t.id === "l" + loan.id + "-" + m);
+    const amt = items.reduce((s, t) => s + t.amount, 0);
+    return { m, amt };
+  }).filter((h) => h.amt > 0);
 
   return (
     <div style={{ padding: "12px 16px 16px" }}>
@@ -1451,11 +1446,9 @@ function LoanDetailScreen({ loan, txAll, accounts, onPayoff, onEdit }) {
 function InstallmentsScreen({ installments, setView, setSelectedInstallment, onAddInstallment }) {
   const [mode, setMode] = useState("진행중");
   const monthTotal = installments.reduce((s, i) => s + i.monthlyAmount, 0);
-  const monthLabels = ["4월", "5월", "6월", "7월"];
-  const monthlyTotals = monthLabels.map((m, idx) => {
-    const offsetFromNow = monthLabels.length - 1 - idx; // 0 = this month, 1 = last month, ...
-    const total = installments.reduce((s, i) => (offsetFromNow < i.paid ? s + i.monthlyAmount : s), 0);
-    return { m, total };
+  const monthlyTotals = GENERATED_MONTHS.map((m, idx) => {
+    const total = installments.reduce((s, i) => (idx < i.paid ? s + i.monthlyAmount : s), 0);
+    return { m: MONTH_LABEL[m].slice(5), key: m, total };
   });
 
   return (
@@ -1540,7 +1533,7 @@ function InstallmentsScreen({ installments, setView, setSelectedInstallment, onA
       {mode === "월별" && (
         <div className="flex flex-col gap-2">
           {monthlyTotals.map((mt) => (
-            <div key={mt.m} className="flex items-center justify-between" style={{ background: C.card, borderRadius: "12px", padding: "12px 14px", border: `1px solid ${C.border}` }}>
+            <div key={mt.key} className="flex items-center justify-between" style={{ background: C.card, borderRadius: "12px", padding: "12px 14px", border: `1px solid ${C.border}` }}>
               <span style={{ fontSize: "13px", fontWeight: 700 }}>{mt.m}</span>
               <span style={{ fontSize: "14px", fontWeight: 700 }}>{won(mt.total)}</span>
             </div>
@@ -1771,19 +1764,18 @@ function FixedScreen({ fixed, txAll, setView, setSelectedFixed, onToggleUnused, 
 }
 
 function MonthlyFixedView({ fixed, txAll }) {
-  const monthTotals = MONTHS.slice()
-    .reverse()
-    .map((m) => {
-      const items = (txAll[m] || []).filter((t) => t.type === "expense" && !t.canceled && t.recurring === "고정");
-      return { m: m.slice(5) + "월", key: m, total: items.reduce((s, t) => s + t.amount, 0), items };
-    });
+  const monthTotals = GENERATED_MONTHS.map((m) => {
+    const items = (txAll[m] || []).filter((t) => t.type === "expense" && !t.canceled && t.recurring === "고정");
+    return { m: m.slice(5) + "월", key: m, total: items.reduce((s, t) => s + t.amount, 0), items };
+  });
+  const chartData = monthTotals.slice().reverse();
 
   return (
     <div>
       <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "8px" }}>월별 고정지출 추이</div>
       <div style={{ height: "140px", marginBottom: "18px" }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={monthTotals}>
+          <BarChart data={chartData}>
             <XAxis dataKey="m" tick={{ fontSize: 11, fill: C.inkSoft }} axisLine={false} tickLine={false} />
             <Tooltip formatter={(v) => won(v)} contentStyle={{ fontSize: 12 }} />
             <Bar dataKey="total" fill={C.accent} radius={[3, 3, 0, 0]} />
@@ -1793,10 +1785,7 @@ function MonthlyFixedView({ fixed, txAll }) {
 
       <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "8px" }}>월별 내역</div>
       <div className="flex flex-col gap-2">
-        {monthTotals
-          .slice()
-          .reverse()
-          .map((mt) => (
+        {monthTotals.map((mt) => (
             <div key={mt.key} style={{ background: C.card, borderRadius: "12px", padding: "12px", border: `1px solid ${C.border}` }}>
               <div className="flex items-center justify-between" style={{ marginBottom: mt.items.length ? "6px" : 0 }}>
                 <span style={{ fontSize: "13px", fontWeight: 700 }}>{mt.m}</span>
@@ -1820,14 +1809,11 @@ function MonthlyFixedView({ fixed, txAll }) {
 
 function FixedDetailScreen({ fixed, txAll, onEdit }) {
   if (!fixed) return null;
-  const monthlyHistory = MONTHS.slice()
-    .reverse()
-    .map((m) => {
-      const items = (txAll[m] || []).filter((t) => t.memo === fixed.name && t.recurring === "고정");
-      const amt = items.reduce((s, t) => s + t.amount, 0);
-      return { m, amt };
-    })
-    .filter((h) => h.amt > 0);
+  const monthlyHistory = GENERATED_MONTHS.map((m) => {
+    const items = (txAll[m] || []).filter((t) => t.memo === fixed.name && t.recurring === "고정");
+    const amt = items.reduce((s, t) => s + t.amount, 0);
+    return { m, amt };
+  }).filter((h) => h.amt > 0);
   const cumulative = monthlyHistory.reduce((s, h) => s + h.amt, 0);
 
   return (
