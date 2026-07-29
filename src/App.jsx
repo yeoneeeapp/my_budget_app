@@ -868,6 +868,7 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: "13px", fontWeight: 600, textDecoration: t.canceled ? "line-through" : "none" }}>
                           {t.memo} {t.canceled && <span style={{ fontSize: "10px", color: C.danger, fontWeight: 700 }}>(취소됨)</span>}
+                          {t.prepaid && !t.canceled && <span style={{ fontSize: "10px", color: C.accent, fontWeight: 700 }}>(선결제)</span>}
                         </div>
                         <div style={{ fontSize: "11px", color: C.inkMute }}>
                           {t.type === "transfer" ? `${t.transferFrom} → ${t.transferTo}` : `${t.category} · ${t.recurring} · ${t.method}`}
@@ -893,6 +894,25 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
                           </span>
                         )}
                       </div>
+                      {t.paymentType === "카드" && (
+                        <button
+                          onClick={() => setTx((prev) => prev.map((p) => (p.id === t.id ? { ...p, prepaid: !p.prepaid } : p)))}
+                          title="결제일 전에 미리 결제함"
+                          style={{
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            padding: "3px 6px",
+                            borderRadius: "6px",
+                            background: t.prepaid ? C.accentSoft : "transparent",
+                            color: t.prepaid ? C.accent : C.inkMute,
+                            border: `1px solid ${t.prepaid ? C.accent : C.border}`,
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}
+                        >
+                          선결제
+                        </button>
+                      )}
                       {t.paymentType === "카드" && (
                         <button
                           onClick={() => setTx((prev) => prev.map((p) => (p.id === t.id ? { ...p, canceled: !p.canceled } : p)))}
@@ -994,10 +1014,12 @@ function CardsScreen({ tx, cards, loans, accounts, installments, setView }) {
 
 function AllCardsHistoryScreen({ tx, cards, setView, setSelectedCard, onAddCard }) {
   const cardTotals = cards
-    .map((c) => ({
-      ...c,
-      total: tx.filter((t) => t.type === "expense" && !t.canceled && t.method === c.method).reduce((s, t) => s + t.amount, 0),
-    }))
+    .map((c) => {
+      const items = tx.filter((t) => t.type === "expense" && !t.canceled && t.method === c.method);
+      const total = items.reduce((s, t) => s + t.amount, 0);
+      const prepaid = items.filter((t) => t.prepaid).reduce((s, t) => s + t.amount, 0);
+      return { ...c, total, dueAmount: total - prepaid };
+    })
     .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 
   return (
@@ -1034,7 +1056,10 @@ function AllCardsHistoryScreen({ tx, cards, setView, setSelectedCard, onAddCard 
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <div style={{ fontSize: "14px", fontWeight: 700 }}>{won(c.total)}</div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: "14px", fontWeight: 700 }}>{won(c.dueAmount)}</div>
+                {c.dueAmount !== c.total && <div style={{ fontSize: "10px", color: C.inkMute }}>사용액 {won(c.total)}</div>}
+              </div>
               <span style={{ color: C.inkMute }}>›</span>
             </div>
           </button>
@@ -1052,7 +1077,7 @@ function AllAccountsHistoryScreen({ accounts, cards, txAll, month, setView, setS
     .map((a) => {
       const linkedCards = cards.filter((c) => (a.linkedCardIds || []).includes(c.id));
       const cardSpend = linkedCards.reduce(
-        (s, c) => s + prevMonthTx.filter((t) => t.type === "expense" && !t.canceled && t.method === c.method).reduce((a2, t) => a2 + t.amount, 0),
+        (s, c) => s + prevMonthTx.filter((t) => t.type === "expense" && !t.canceled && !t.prepaid && t.method === c.method).reduce((a2, t) => a2 + t.amount, 0),
         0
       );
       return { ...a, availableBalance: a.balance - cardSpend, linkedCards };
@@ -1150,6 +1175,8 @@ function CardDetailScreen({ card, tx, txAll, onEdit }) {
   if (!card) return null;
   const cardTx = tx.filter((t) => t.method === card.method).sort((a, b) => (a.date < b.date ? 1 : -1));
   const total = cardTx.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
+  const prepaidTotal = cardTx.filter((t) => t.type === "expense" && !t.canceled && t.prepaid).reduce((s, t) => s + t.amount, 0);
+  const dueAmount = total - prepaidTotal;
 
   const monthlyTotals = MONTHS.slice()
     .reverse()
@@ -1166,6 +1193,15 @@ function CardDetailScreen({ card, tx, txAll, onEdit }) {
           <span style={{ fontSize: "18px", fontWeight: 700 }}>{won(total)}</span>
         </div>
         <div style={{ fontSize: "12px", color: C.inkSoft }}>결제일 매달 {card.dueDay}일</div>
+        {prepaidTotal > 0 && (
+          <div className="flex items-center justify-between" style={{ marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${C.border}` }}>
+            <span style={{ fontSize: "12px", color: C.inkSoft }}>결제일에 실제 청구될 금액</span>
+            <span style={{ fontSize: "14px", fontWeight: 700, color: C.accent }}>{won(dueAmount)}</span>
+          </div>
+        )}
+        {prepaidTotal > 0 && (
+          <div style={{ fontSize: "11px", color: C.inkMute, marginTop: "2px" }}>미리 결제한 {won(prepaidTotal)}은 제외됐어요.</div>
+        )}
       </div>
 
       <div style={{ background: C.card, borderRadius: "12px", padding: "14px", marginBottom: "14px", border: `1px solid ${C.border}` }}>
@@ -1259,7 +1295,7 @@ function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
   const prevMonthKey = MONTHS[MONTHS.indexOf(month) + 1];
   const prevMonthTx = prevMonthKey ? txAll[prevMonthKey] || [] : [];
   const billedCardSpend = linkedCards.reduce(
-    (s, c) => s + prevMonthTx.filter((t) => t.type === "expense" && !t.canceled && t.method === c.method).reduce((a2, t) => a2 + t.amount, 0),
+    (s, c) => s + prevMonthTx.filter((t) => t.type === "expense" && !t.canceled && !t.prepaid && t.method === c.method).reduce((a2, t) => a2 + t.amount, 0),
     0
   );
   const availableBalance = account.balance - billedCardSpend;
@@ -1643,7 +1679,7 @@ function FixedScreen({ fixed, txAll, setView, setSelectedFixed, onToggleUnused, 
           </div>
           <div style={{ fontSize: "14px", fontWeight: 700 }}>{won(f.amount)}</div>
         </button>
-        {isSubscription && mode === "미사용" && (
+        {isSubscription && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -1666,7 +1702,7 @@ function FixedScreen({ fixed, txAll, setView, setSelectedFixed, onToggleUnused, 
             >
               {f.unusedChecked && <Check size={11} color="#fff" strokeWidth={3} />}
             </div>
-            <span style={{ fontSize: "11px", fontWeight: 600, color: f.unusedChecked ? C.danger : C.inkSoft }}>미사용 중 체크</span>
+            <span style={{ fontSize: "11px", fontWeight: 600, color: f.unusedChecked ? C.danger : C.inkSoft }}>{f.unusedChecked ? "재개하기" : "미사용 처리"}</span>
           </button>
         )}
       </div>
