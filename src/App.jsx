@@ -302,7 +302,7 @@ function BottomNav({ tab, setTab, onAdd }) {
 /* ---------------------------------------------------------- */
 /* Home                                                          */
 /* ---------------------------------------------------------- */
-function HomeScreen({ tx, txAll, month, cards, loans, goTransactions, goCards }) {
+function HomeScreen({ tx, txAll, month, cards, loans, goTransactions, goCards, saveState, onReset }) {
   const income = tx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const expense = tx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   const net = income - expense;
@@ -342,6 +342,14 @@ function HomeScreen({ tx, txAll, month, cards, loans, goTransactions, goCards })
 
   return (
     <div style={{ padding: "12px 16px 16px" }}>
+      <div className="flex items-center justify-end gap-3" style={{ marginBottom: "8px" }}>
+        <span style={{ fontSize: "11px", color: C.inkMute }}>
+          {saveState === "saving" ? "저장 중..." : saveState === "error" ? "저장 실패" : "저장됨"}
+        </span>
+        <button onClick={onReset} style={{ fontSize: "11px", color: C.inkSoft, textDecoration: "underline" }}>
+          초기화
+        </button>
+      </div>
       <div style={{ background: C.card, borderRadius: "16px", padding: "20px 14px", marginBottom: "10px", border: `1px solid ${C.border}`, textAlign: "center" }}>
         <div style={{ fontSize: "12px", color: C.inkSoft, marginBottom: "6px" }}>이번 달 기준 순 잔액</div>
         <div style={{ fontSize: "32px", fontWeight: 800, color: net >= 0 ? C.accent : C.danger, letterSpacing: "-0.02em", marginBottom: "10px" }}>
@@ -2590,7 +2598,19 @@ export default function BudgetAppPrototype() {
 
   if (view === "home") {
     title = "";
-    screen = <HomeScreen tx={tx} txAll={txAll} month={month} cards={cards} loans={loans} goTransactions={goTransactions} goCards={() => goTab("cards")} />;
+    screen = (
+      <HomeScreen
+        tx={tx}
+        txAll={txAll}
+        month={month}
+        cards={cards}
+        loans={loans}
+        goTransactions={goTransactions}
+        goCards={() => goTab("cards")}
+        saveState={saveState}
+        onReset={() => setShowResetConfirm(true)}
+      />
+    );
   } else if (view === "transactions") {
     title = "내역";
     screen = <TransactionsScreen tx={tx} setTx={setTx} filter={txFilter} setFilter={setTxFilter} txAll={txAll} goMonth={goMonth} month={month} setMonth={setMonth} />;
@@ -2755,15 +2775,6 @@ export default function BudgetAppPrototype() {
               <Search size={18} color="#fff" />
             ) : view === "fixed" ? (
               <SlidersHorizontal size={18} color="#fff" />
-            ) : view === "home" ? (
-              <div className="flex items-center gap-2">
-                <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.85)" }}>
-                  {saveState === "saving" ? "저장 중..." : saveState === "error" ? "저장 실패" : "저장됨"}
-                </span>
-                <button onClick={() => setShowResetConfirm(true)} style={{ fontSize: "11px", color: "rgba(255,255,255,0.75)", textDecoration: "underline" }}>
-                  초기화
-                </button>
-              </div>
             ) : null
           }
         />
