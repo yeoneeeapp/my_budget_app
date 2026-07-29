@@ -249,7 +249,7 @@ const TAB_META = {
 const FUTURE_MONTHS_AHEAD = 12; // 현재 달 기준 앞으로 12개월까지 미리 넘겨볼 수 있어요
 const MONTHS = buildMonthsRange(START_MONTH, addMonthsToMonthKey(CURRENT_MONTH, FUTURE_MONTHS_AHEAD)); // 최신(미래) 달이 맨 앞 (내림차순), 7월 이전은 존재하지 않음
 const GENERATED_MONTHS = MONTHS.filter((m) => m <= CURRENT_MONTH); // 고정지출 등 자동생성은 오늘 기준 현재 달까지만 (미래 달은 미리 만들지 않음)
-const HOME_MONTH_OPTIONS = MONTHS.filter((m) => Math.abs(monthsBetween(CURRENT_MONTH, m)) <= 3); // 홈 화면 월 선택은 오늘 기준 전후 3개월만
+const HOME_MONTH_OPTIONS = GENERATED_MONTHS.slice(0, 4); // 홈 화면 월 선택: 현재 달이 맨 위, 미래 달은 안 보이고 과거 3개월까지만
 
 const txByMonth = {};
 MONTHS.forEach((m) => {
