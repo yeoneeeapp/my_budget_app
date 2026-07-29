@@ -34,6 +34,7 @@ import {
   Dumbbell,
   Stethoscope,
   Users,
+  ArrowRightLeft,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -100,6 +101,7 @@ const CAT_COLORS = {
   의료: GREEN_RAMP[1],
   선물: GREEN_RAMP[2],
   가족: GREEN_RAMP[3],
+  이체: GREEN_RAMP[4],
 };
 
 const CAT_ICON = {
@@ -125,6 +127,7 @@ const CAT_ICON = {
   의료: Stethoscope,
   선물: Gift,
   가족: Users,
+  이체: ArrowRightLeft,
 };
 
 const won = (n) => Math.round(Math.abs(n)).toLocaleString("ko-KR") + "원";
@@ -853,28 +856,35 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
                           width: "32px",
                           height: "32px",
                           borderRadius: "50%",
-                          background: t.type === "income" ? C.accentSoft : t.recurring === "고정" ? C.dangerSoft : C.bg,
+                          background: t.type === "income" ? C.accentSoft : t.type === "transfer" ? C.accentSoft : t.recurring === "고정" ? C.dangerSoft : C.bg,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           flexShrink: 0,
                         }}
                       >
-                        <Icon size={15} color={t.type === "income" ? C.accentIcon : t.recurring === "고정" ? C.dangerIcon : C.inkMute} />
+                        <Icon size={15} color={t.type === "income" || t.type === "transfer" ? C.accentIcon : t.recurring === "고정" ? C.dangerIcon : C.inkMute} />
                       </div>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: "13px", fontWeight: 600, textDecoration: t.canceled ? "line-through" : "none" }}>
                           {t.memo} {t.canceled && <span style={{ fontSize: "10px", color: C.danger, fontWeight: 700 }}>(취소됨)</span>}
                         </div>
                         <div style={{ fontSize: "11px", color: C.inkMute }}>
-                          {t.category} · {t.recurring} · {t.method}
+                          {t.type === "transfer" ? `${t.transferFrom} → ${t.transferTo}` : `${t.category} · ${t.recurring} · ${t.method}`}
                         </div>
                       </div>
                     </button>
                     <div className="flex items-center gap-2">
                       <div className="flex flex-col items-end">
-                        <span style={{ fontSize: "13px", fontWeight: 600, color: t.type === "income" ? C.accent : C.ink, textDecoration: t.canceled ? "line-through" : "none" }}>
-                          {t.type === "income" ? "+" : "-"}
+                        <span
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            color: t.type === "income" ? C.accent : t.type === "transfer" ? C.ink : C.ink,
+                            textDecoration: t.canceled ? "line-through" : "none",
+                          }}
+                        >
+                          {t.type === "income" ? "+" : t.type === "transfer" ? "" : "-"}
                           {won(t.amount)}
                         </span>
                         {t.discount > 0 && (
@@ -1238,6 +1248,7 @@ function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
   const accountTx = tx
     .filter((t) => {
       if (t.type === "income") return t.toAccount === account.name;
+      if (t.type === "transfer") return t.transferFrom === account.name || t.transferTo === account.name;
       if (t.method !== "계좌") return linkedMethods.includes(t.method);
       // 계좌 결제 항목 중 특정 통장이 지정된 경우(예: 대출 이자) 그 통장에서만 보여요.
       // 통장이 지정 안 된 일반 계좌 항목(고정지출 등)은 지금까지처럼 모든 통장에 보여요.
@@ -1254,6 +1265,7 @@ function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
   const availableBalance = account.balance - billedCardSpend;
 
   function payLabel(t) {
+    if (t.type === "transfer") return t.transferTo === account.name ? "받음" : "보냄";
     if (t.method === "계좌") return "계좌";
     if (t.paymentType === "현금") return "현금";
     return t.cardKind || "카드";
@@ -1305,10 +1317,10 @@ function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
                 <span style={{ fontSize: "13px", fontWeight: 600 }}>{t.memo}</span>
                 <span style={{ fontSize: "10px", color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: "6px", fontWeight: 700 }}>{payLabel(t)}</span>
               </div>
-              <div style={{ fontSize: "11px", color: C.inkMute }}>{t.date.slice(5)} · {t.category}</div>
+              <div style={{ fontSize: "11px", color: C.inkMute }}>{t.date.slice(5)} · {t.type === "transfer" ? payLabel(t) : t.category}</div>
             </div>
-            <span style={{ fontSize: "13px", fontWeight: 600, color: t.type === "income" ? C.accent : C.ink }}>
-              {t.type === "income" ? "+" : "-"}
+            <span style={{ fontSize: "13px", fontWeight: 600, color: t.type === "income" || (t.type === "transfer" && t.transferTo === account.name) ? C.accent : C.ink }}>
+              {t.type === "income" ? "+" : t.type === "transfer" ? (t.transferTo === account.name ? "+" : "-") : "-"}
               {won(t.amount)}
             </span>
           </div>
@@ -1826,7 +1838,7 @@ function FixedDetailScreen({ fixed, txAll, onEdit }) {
 /* ---------------------------------------------------------- */
 /* Quick add sheet                                                */
 /* ---------------------------------------------------------- */
-function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, editTx, defaultDate }) {
+function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, accounts, editTx, defaultDate }) {
   const [form, setForm] = useState(
     editTx
       ? {
@@ -1838,6 +1850,8 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, editTx, d
           cardKind: editTx.cardKind || "신용",
           cardIssuer: editTx.method === "현금" || editTx.method === "계좌" ? cards[0]?.name || "" : editTx.method,
           toAccount: editTx.toAccount || (accounts[0] ? accounts[0].name : ""),
+          transferFrom: editTx.transferFrom || "현금",
+          transferTo: editTx.transferTo || (accounts[0] ? accounts[0].name : ""),
           amount: String(editTx.originalAmount ?? editTx.amount ?? ""),
           discount: editTx.discount ? String(editTx.discount) : "",
           memo: editTx.memo === "-" ? "" : editTx.memo,
@@ -1851,6 +1865,8 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, editTx, d
           cardKind: "신용",
           cardIssuer: cards[0] ? cards[0].name : "",
           toAccount: accounts[0] ? accounts[0].name : "",
+          transferFrom: "현금",
+          transferTo: accounts[0] ? accounts[0].name : "",
           amount: "",
           discount: "",
           memo: "",
@@ -1877,47 +1893,91 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, editTx, d
             style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
           />
           <div className="flex gap-2">
-            <select
-              value={form.type}
-              onChange={(e) => {
-                const type = e.target.value;
-                const opts = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-                setForm({ ...form, type, category: opts[0] });
-              }}
-              className="flex-1"
-              style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
-            >
-              <option value="expense">지출</option>
-              <option value="income">수입</option>
-            </select>
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="flex-1" style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}>
-              {catOptions.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex gap-2">
-            {["변동", "고정"].map((r) => (
+            {[
+              { key: "expense", label: "지출" },
+              { key: "income", label: "수입" },
+              { key: "transfer", label: "이체" },
+            ].map((opt) => (
               <button
-                key={r}
-                onClick={() => setForm({ ...form, recurring: r })}
+                key={opt.key}
+                onClick={() => {
+                  const opts = opt.key === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+                  setForm({ ...form, type: opt.key, category: opts[0] });
+                }}
                 className="flex-1"
                 style={{
                   padding: "8px",
                   borderRadius: "8px",
                   fontSize: "13px",
                   fontWeight: 600,
-                  background: form.recurring === r ? C.accent : "transparent",
-                  color: form.recurring === r ? "#fff" : C.inkSoft,
-                  border: form.recurring === r ? "none" : `1px solid ${C.border}`,
+                  background: form.type === opt.key ? C.ink : "transparent",
+                  color: form.type === opt.key ? "#fff" : C.inkSoft,
+                  border: form.type === opt.key ? "none" : `1px solid ${C.border}`,
                 }}
               >
-                {r}
+                {opt.label}
               </button>
             ))}
           </div>
+          {form.type !== "transfer" && (
+            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}>
+              {catOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+          {form.type !== "transfer" && (
+            <div className="flex gap-2">
+              {["변동", "고정"].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setForm({ ...form, recurring: r })}
+                  className="flex-1"
+                  style={{
+                    padding: "8px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    background: form.recurring === r ? C.accent : "transparent",
+                    color: form.recurring === r ? "#fff" : C.inkSoft,
+                    border: form.recurring === r ? "none" : `1px solid ${C.border}`,
+                  }}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          )}
+          {form.type === "transfer" && (
+            <div className="flex flex-col gap-2">
+              <div>
+                <div style={{ fontSize: "11px", color: C.inkMute, marginBottom: "4px" }}>보내는 곳</div>
+                <select value={form.transferFrom} onChange={(e) => setForm({ ...form, transferFrom: e.target.value })} style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px", width: "100%" }}>
+                  <option value="현금">현금</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.name}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: C.inkMute, marginBottom: "4px" }}>받는 통장</div>
+                <select value={form.transferTo} onChange={(e) => setForm({ ...form, transferTo: e.target.value })} style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px", width: "100%" }}>
+                  {accounts.length === 0 && <option value="">등록된 통장이 없어요</option>}
+                  {accounts
+                    .filter((a) => a.name !== form.transferFrom)
+                    .map((a) => (
+                      <option key={a.id} value={a.name}>
+                        {a.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          )}
           {form.type === "income" && (
             <select value={form.toAccount} onChange={(e) => setForm({ ...form, toAccount: e.target.value })} style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}>
               {accounts.length === 0 && <option value="">등록된 통장이 없어요</option>}
@@ -1974,15 +2034,17 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, editTx, d
           {form.type === "expense" && form.paymentType === "카드" && (
             <AmountInput placeholder="카드할인 (없으면 비워두세요)" value={form.discount} onChange={(v) => setForm({ ...form, discount: v })} />
           )}
-          <div
-            className="flex items-center justify-between"
-            style={{ background: C.accentSoft, borderRadius: "8px", padding: "8px 10px" }}
-          >
-            <span style={{ fontSize: "12px", color: C.inkSoft }}>최종금액 (금액 - 카드할인)</span>
-            <span style={{ fontSize: "14px", fontWeight: 700, color: C.accent }}>
-              {won(Math.max(0, (parseInt(form.amount, 10) || 0) - (parseInt(form.discount, 10) || 0)))}
-            </span>
-          </div>
+          {form.type !== "transfer" && (
+            <div
+              className="flex items-center justify-between"
+              style={{ background: C.accentSoft, borderRadius: "8px", padding: "8px 10px" }}
+            >
+              <span style={{ fontSize: "12px", color: C.inkSoft }}>최종금액 (금액 - 카드할인)</span>
+              <span style={{ fontSize: "14px", fontWeight: 700, color: C.accent }}>
+                {won(Math.max(0, (parseInt(form.amount, 10) || 0) - (parseInt(form.discount, 10) || 0)))}
+              </span>
+            </div>
+          )}
           <input
             type="text"
             placeholder="메모"
@@ -1994,6 +2056,26 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, editTx, d
             onClick={() => {
               if (!form.amount) return;
               const amount = parseInt(form.amount, 10);
+              if (form.type === "transfer") {
+                if (!form.transferTo) return;
+                const txData = {
+                  id: editTx ? editTx.id : "t" + Date.now(),
+                  date: form.date,
+                  type: "transfer",
+                  category: "이체",
+                  recurring: "변동",
+                  method: form.transferFrom,
+                  transferFrom: form.transferFrom,
+                  transferTo: form.transferTo,
+                  amount,
+                  memo: form.memo || `${form.transferFrom} → ${form.transferTo} 이체`,
+                };
+                if (editTx) onSave(txData);
+                else onAdd(txData);
+                if (!editTx) onTransfer(form.transferFrom, form.transferTo, amount);
+                onClose();
+                return;
+              }
               const discount = form.type === "expense" && form.paymentType === "카드" ? parseInt(form.discount, 10) || 0 : 0;
               const final = Math.max(0, amount - discount);
               const method = form.type === "income" ? "계좌" : form.paymentType === "현금" ? "현금" : form.cardIssuer;
@@ -2830,6 +2912,17 @@ export default function BudgetAppPrototype() {
     setTxAll((prev) => ({ ...prev, [monthKey]: [txObj, ...(prev[monthKey] || [])] }));
   }
 
+  function applyTransfer(fromName, toName, amount) {
+    setAccounts((prev) =>
+      prev.map((a) => {
+        let balance = a.balance;
+        if (a.name === toName) balance += amount;
+        if (a.name === fromName) balance -= amount; // fromName이 "현금"이면 어떤 통장 이름과도 안 맞아서 그냥 무시돼요
+        return balance !== a.balance ? { ...a, balance } : a;
+      })
+    );
+  }
+
   function loanInterestTxObj(loan, monthKey, accounts2) {
     const account = accounts2.find((a) => a.id === loan.linkedAccountId);
     return {
@@ -3234,6 +3327,7 @@ export default function BudgetAppPrototype() {
             }}
             onSave={(updatedTx) => saveEditedTx(updatedTx, month)}
             onDelete={(txId) => deleteTxGlobal(txId, month)}
+            onTransfer={applyTransfer}
           />
         )}
         {showAddCard && (
