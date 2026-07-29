@@ -777,7 +777,7 @@ function MonthlyListView({ txAll, goMonth }) {
   );
 }
 
-function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth, onEditTx }) {
+function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth, showSearch, searchQuery, setSearchQuery, onEditTx }) {
   const [viewMode, setViewMode] = useState("일별");
 
   const filtered = tx.filter((t) => {
@@ -789,19 +789,36 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
     return true;
   });
 
+  const searched = searchQuery.trim()
+    ? filtered.filter((t) => {
+        const q = searchQuery.trim().toLowerCase();
+        return (t.memo || "").toLowerCase().includes(q) || (t.category || "").toLowerCase().includes(q) || (t.method || "").toLowerCase().includes(q);
+      })
+    : filtered;
+
   const grouped = useMemo(() => {
     const map = {};
-    filtered
+    searched
       .slice()
       .sort((a, b) => (a.date < b.date ? 1 : -1))
       .forEach((t) => {
         (map[t.date] = map[t.date] || []).push(t);
       });
     return map;
-  }, [filtered]);
+  }, [searched]);
 
   return (
     <div style={{ padding: "12px 16px 16px" }}>
+      {showSearch && (
+        <input
+          type="text"
+          autoFocus
+          placeholder="메모, 카테고리로 검색 (이번 달 내역만)"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{ width: "100%", border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px", marginBottom: "10px" }}
+        />
+      )}
       <MonthNav month={month} setMonth={setMonth} />
       <div className="flex gap-1.5" style={{ marginBottom: "10px" }}>
         {["일별", "주별", "달력", "월별"].map((v) => (
@@ -2820,6 +2837,8 @@ export default function BudgetAppPrototype() {
   const [txFilter, setTxFilter] = useState("전체");
   const [showAdd, setShowAdd] = useState(false);
   const [editingTx, setEditingTx] = useState(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showAddCard, setShowAddCard] = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [showAddLoan, setShowAddLoan] = useState(false);
@@ -3232,6 +3251,9 @@ export default function BudgetAppPrototype() {
         goMonth={goMonth}
         month={month}
         setMonth={setMonth}
+        showSearch={showSearch}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
         onEditTx={(t) => {
           setEditingTx(t);
           setShowAdd(true);
@@ -3413,7 +3435,17 @@ export default function BudgetAppPrototype() {
           right={
             view === "transactions" ? (
               <>
-                <Search size={18} color="#fff" />
+                <button
+                  onClick={() => {
+                    setShowSearch((v) => {
+                      if (v) setSearchQuery("");
+                      return !v;
+                    });
+                  }}
+                  style={{ display: "flex" }}
+                >
+                  <Search size={18} color="#fff" />
+                </button>
                 <button
                   onClick={() => {
                     setEditingTx(null);
