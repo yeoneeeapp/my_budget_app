@@ -421,7 +421,9 @@ function HomeScreen({ tx, txAll, month, cards, loans, accounts, goTransactions, 
     tx.filter((t) => t.type === "expense" && !t.canceled).forEach((t) => {
       map[t.category] = (map[t.category] || 0) + t.amount;
     });
-    return Object.entries(map).map(([name, value]) => ({ name, value }));
+    return Object.entries(map)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
   }, [tx]);
 
   const monthIdx = MONTHS.indexOf(month);
