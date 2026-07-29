@@ -124,6 +124,28 @@ const CAT_ICON = {
 
 const won = (n) => Math.round(Math.abs(n)).toLocaleString("ko-KR") + "원";
 
+function formatNum(v) {
+  const digits = String(v).replace(/[^\d]/g, "");
+  if (!digits) return "";
+  return parseInt(digits, 10).toLocaleString("ko-KR");
+}
+function unformatNum(v) {
+  const digits = String(v).replace(/[^\d]/g, "");
+  return digits;
+}
+function AmountInput({ value, onChange, placeholder, style }) {
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder={placeholder}
+      value={formatNum(value)}
+      onChange={(e) => onChange(unformatNum(e.target.value))}
+      style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px", ...style }}
+    />
+  );
+}
+
 const TODAY = "2026-07-28";
 
 function addMonthsToDateStr(dateStr, k) {
@@ -304,11 +326,11 @@ function BottomNav({ tab, setTab, onAdd }) {
 /* ---------------------------------------------------------- */
 function HomeScreen({ tx, txAll, month, cards, loans, goTransactions, goCards, saveState, onReset }) {
   const income = tx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const expense = tx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const expense = tx.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
   const net = income - expense;
 
   const cardTotal = cards.reduce(
-    (s, c) => s + tx.filter((t) => t.type === "expense" && t.method === c.method).reduce((a, t) => a + t.amount, 0),
+    (s, c) => s + tx.filter((t) => t.type === "expense" && !t.canceled && t.method === c.method).reduce((a, t) => a + t.amount, 0),
     0
   );
   const loanTotal = loans.reduce((s, l) => s + l.balance, 0);
@@ -316,7 +338,7 @@ function HomeScreen({ tx, txAll, month, cards, loans, goTransactions, goCards, s
 
   const categoryData = useMemo(() => {
     const map = {};
-    tx.filter((t) => t.type === "expense").forEach((t) => {
+    tx.filter((t) => t.type === "expense" && !t.canceled).forEach((t) => {
       map[t.category] = (map[t.category] || 0) + t.amount;
     });
     return Object.entries(map).map(([name, value]) => ({ name, value }));
@@ -327,17 +349,17 @@ function HomeScreen({ tx, txAll, month, cards, loans, goTransactions, goCards, s
     .map((m) => {
       const items = txAll[m] || [];
       const inc = items.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-      const exp = items.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+      const exp = items.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
       return { m: m.slice(5) + "월", 수입: inc, 지출: exp };
     });
 
   const prevMonthKey = MONTHS[MONTHS.indexOf(month) + 1];
   const prevItems = prevMonthKey ? txAll[prevMonthKey] || [] : [];
   const prevIncome = prevItems.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const prevExpense = prevItems.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const prevExpense = prevItems.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
   const prevNet = prevIncome - prevExpense;
   const netDiff = net - prevNet;
-  const fixedExpense = tx.filter((t) => t.type === "expense" && t.recurring === "고정").reduce((s, t) => s + t.amount, 0);
+  const fixedExpense = tx.filter((t) => t.type === "expense" && !t.canceled && t.recurring === "고정").reduce((s, t) => s + t.amount, 0);
   const fixedRatio = expense ? Math.round((fixedExpense / expense) * 100) : 0;
 
   return (
@@ -481,7 +503,7 @@ function MonthNav({ month, setMonth }) {
 
 function SummaryBar({ tx }) {
   const income = tx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const expense = tx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const expense = tx.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
   return (
     <div className="flex items-center" style={{ background: C.card, borderRadius: "12px", padding: "12px", marginBottom: "12px", border: `1px solid ${C.border}` }}>
       <div style={{ flex: 1, textAlign: "center" }}>
@@ -511,7 +533,7 @@ function CalendarView({ month, tx }) {
     const d = parseInt(t.date.slice(8, 10), 10);
     byDay[d] = byDay[d] || { income: 0, expense: 0 };
     if (t.type === "income") byDay[d].income += t.amount;
-    else byDay[d].expense += t.amount;
+    else if (!t.canceled) byDay[d].expense += t.amount;
   });
 
   const cells = [];
@@ -552,11 +574,67 @@ function CalendarView({ month, tx }) {
   );
 }
 
+function WeeklyView({ month, tx }) {
+  const [y, m] = month.split("-").map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const firstWeekday = new Date(y, m - 1, 1).getDay();
+
+  const byDay = {};
+  tx.forEach((t) => {
+    const d = parseInt(t.date.slice(8, 10), 10);
+    byDay[d] = byDay[d] || { income: 0, expense: 0 };
+    if (t.type === "income") byDay[d].income += t.amount;
+    else if (!t.canceled) byDay[d].expense += t.amount;
+  });
+
+  const weeks = [];
+  let dayCursor = 1 - firstWeekday; // 첫 주는 이전 달 날짜로 시작할 수 있음
+  while (dayCursor <= daysInMonth) {
+    const weekStart = Math.max(dayCursor, 1);
+    const weekEnd = Math.min(dayCursor + 6, daysInMonth);
+    let income = 0;
+    let expense = 0;
+    for (let d = weekStart; d <= weekEnd; d++) {
+      if (byDay[d]) {
+        income += byDay[d].income;
+        expense += byDay[d].expense;
+      }
+    }
+    weeks.push({ label: `${pad2(m)}.${pad2(weekStart)} ~ ${pad2(m)}.${pad2(weekEnd)}`, income, expense });
+    dayCursor += 7;
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {weeks.map((w, idx) => (
+        <div key={idx} style={{ background: C.card, borderRadius: "12px", padding: "12px", border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: "12px", color: C.inkSoft, marginBottom: "6px" }}>{idx + 1}주차 · {w.label}</div>
+          <div className="flex items-center" style={{ gap: "12px" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "10px", color: C.inkMute }}>수입</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: C.accent }}>{won(w.income)}</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "10px", color: C.inkMute }}>지출</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: C.danger }}>{won(w.expense)}</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "10px", color: C.inkMute }}>합계</div>
+              <div style={{ fontSize: "13px", fontWeight: 700 }}>{wonSigned(w.income - w.expense)}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
 function MonthlyListView({ txAll, goMonth }) {
   const rows = MONTHS.map((m) => {
     const items = txAll[m] || [];
     const income = items.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-    const expense = items.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+    const expense = items.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
     return { m, income, expense, net: income - expense };
   });
 
@@ -594,7 +672,7 @@ function MonthlyListView({ txAll, goMonth }) {
   );
 }
 
-function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth }) {
+function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth, onEditTx }) {
   const [viewMode, setViewMode] = useState("일별");
 
   const filtered = tx.filter((t) => {
@@ -621,7 +699,7 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
     <div style={{ padding: "12px 16px 16px" }}>
       <MonthNav month={month} setMonth={setMonth} />
       <div className="flex gap-1.5" style={{ marginBottom: "10px" }}>
-        {["일별", "달력", "월별"].map((v) => (
+        {["일별", "주별", "달력", "월별"].map((v) => (
           <button
             key={v}
             onClick={() => setViewMode(v)}
@@ -642,6 +720,7 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
       <SummaryBar tx={tx} />
 
       {viewMode === "월별" && <MonthlyListView txAll={txAll} goMonth={goMonth} />}
+      {viewMode === "주별" && <WeeklyView month={month} tx={tx} />}
       {viewMode === "달력" && <CalendarView month={month} tx={tx} />}
       {viewMode === "일별" && (
         <>
@@ -674,9 +753,9 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
                   <div
                     key={t.id}
                     className="flex items-center justify-between"
-                    style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}
+                    style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}`, opacity: t.canceled ? 0.5 : 1 }}
                   >
-                    <div className="flex items-center gap-2.5">
+                    <button onClick={() => onEditTx(t)} className="flex items-center gap-2.5 text-left" style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
                           width: "32px",
@@ -686,20 +765,23 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
+                          flexShrink: 0,
                         }}
                       >
                         <Icon size={15} color={t.type === "income" ? C.accentIcon : t.recurring === "고정" ? C.dangerIcon : C.inkMute} />
                       </div>
-                      <div>
-                        <div style={{ fontSize: "13px", fontWeight: 600 }}>{t.memo}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: "13px", fontWeight: 600, textDecoration: t.canceled ? "line-through" : "none" }}>
+                          {t.memo} {t.canceled && <span style={{ fontSize: "10px", color: C.danger, fontWeight: 700 }}>(취소됨)</span>}
+                        </div>
                         <div style={{ fontSize: "11px", color: C.inkMute }}>
                           {t.category} · {t.recurring} · {t.method}
                         </div>
                       </div>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-2">
                       <div className="flex flex-col items-end">
-                        <span style={{ fontSize: "13px", fontWeight: 600, color: t.type === "income" ? C.accent : C.ink }}>
+                        <span style={{ fontSize: "13px", fontWeight: 600, color: t.type === "income" ? C.accent : C.ink, textDecoration: t.canceled ? "line-through" : "none" }}>
                           {t.type === "income" ? "+" : "-"}
                           {won(t.amount)}
                         </span>
@@ -709,11 +791,30 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
                           </span>
                         )}
                       </div>
+                      {t.paymentType === "카드" && (
+                        <button
+                          onClick={() => setTx((prev) => prev.map((p) => (p.id === t.id ? { ...p, canceled: !p.canceled } : p)))}
+                          title="카드 거래 취소"
+                          style={{
+                            width: "16px",
+                            height: "16px",
+                            borderRadius: "4px",
+                            border: `1.5px solid ${t.canceled ? C.danger : C.inkMute}`,
+                            background: t.canceled ? C.danger : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {t.canceled && <Check size={10} color="#fff" strokeWidth={3} />}
+                        </button>
+                      )}
                       <button
                         onClick={() =>
                           setTx((prev) => {
                             const idx = prev.findIndex((p) => p.id === t.id);
-                            const copy = { ...t, id: "t" + Date.now() };
+                            const copy = { ...t, id: "t" + Date.now(), canceled: false };
                             const next = [...prev];
                             next.splice(idx + 1, 0, copy);
                             return next;
@@ -746,7 +847,7 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
 /* ---------------------------------------------------------- */
 function CardsScreen({ tx, cards, loans, accounts, installments, setView }) {
   const cardTotal = cards.reduce(
-    (s, c) => s + tx.filter((t) => t.type === "expense" && t.method === c.method).reduce((a, t) => a + t.amount, 0),
+    (s, c) => s + tx.filter((t) => t.type === "expense" && !t.canceled && t.method === c.method).reduce((a, t) => a + t.amount, 0),
     0
   );
   const loanTotal = loans.reduce((s, l) => s + l.balance, 0);
@@ -793,7 +894,7 @@ function AllCardsHistoryScreen({ tx, cards, setView, setSelectedCard, onAddCard 
   const cardTotals = cards
     .map((c) => ({
       ...c,
-      total: tx.filter((t) => t.type === "expense" && t.method === c.method).reduce((s, t) => s + t.amount, 0),
+      total: tx.filter((t) => t.type === "expense" && !t.canceled && t.method === c.method).reduce((s, t) => s + t.amount, 0),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 
@@ -842,11 +943,13 @@ function AllCardsHistoryScreen({ tx, cards, setView, setSelectedCard, onAddCard 
   );
 }
 
-function AllAccountsHistoryScreen({ accounts, cards, tx, setView, setSelectedAccount, onAddAccount }) {
+function AllAccountsHistoryScreen({ accounts, cards, txAll, month, setView, setSelectedAccount, onAddAccount }) {
+  const prevMonthKey = MONTHS[MONTHS.indexOf(month) + 1];
+  const prevMonthTx = prevMonthKey ? txAll[prevMonthKey] || [] : [];
   const sortedAccounts = [...accounts]
     .map((a) => {
       const linkedCard = cards.find((c) => c.id === a.linkedCardId);
-      const cardSpend = linkedCard ? tx.filter((t) => t.type === "expense" && t.method === linkedCard.method).reduce((s, t) => s + t.amount, 0) : 0;
+      const cardSpend = linkedCard ? prevMonthTx.filter((t) => t.type === "expense" && !t.canceled && t.method === linkedCard.method).reduce((s, t) => s + t.amount, 0) : 0;
       return { ...a, availableBalance: a.balance - cardSpend, linkedCard };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -941,12 +1044,12 @@ function CardDetailScreen({ card, tx, txAll, onEdit }) {
   const [mode, setMode] = useState("이번달");
   if (!card) return null;
   const cardTx = tx.filter((t) => t.method === card.method).sort((a, b) => (a.date < b.date ? 1 : -1));
-  const total = cardTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const total = cardTx.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
 
   const monthlyTotals = MONTHS.slice()
     .reverse()
     .map((m) => {
-      const items = (txAll[m] || []).filter((t) => t.type === "expense" && t.method === card.method);
+      const items = (txAll[m] || []).filter((t) => t.type === "expense" && !t.canceled && t.method === card.method);
       return { m, total: items.reduce((s, t) => s + t.amount, 0), items };
     });
 
@@ -1033,14 +1136,17 @@ function CardDetailScreen({ card, tx, txAll, onEdit }) {
   );
 }
 
-function AccountDetailScreen({ account, tx, cards, onEdit }) {
+function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
   if (!account) return null;
   const linkedCard = cards.find((c) => c.id === account.linkedCardId);
   const accountTx = tx
     .filter((t) => t.method === "계좌" || (linkedCard && t.method === linkedCard.method))
     .sort((a, b) => (a.date < b.date ? 1 : -1));
-  const cardSpend = linkedCard ? tx.filter((t) => t.type === "expense" && t.method === linkedCard.method).reduce((s, t) => s + t.amount, 0) : 0;
-  const availableBalance = account.balance - cardSpend;
+  // 카드 사용액은 보통 다음 달 결제일에 실제로 통장에서 빠져나가므로, 이번 달에 청구되는 금액은 '전월' 카드 사용액이에요.
+  const prevMonthKey = MONTHS[MONTHS.indexOf(month) + 1];
+  const prevMonthTx = prevMonthKey ? txAll[prevMonthKey] || [] : [];
+  const billedCardSpend = linkedCard ? prevMonthTx.filter((t) => t.type === "expense" && !t.canceled && t.method === linkedCard.method).reduce((s, t) => s + t.amount, 0) : 0;
+  const availableBalance = account.balance - billedCardSpend;
 
   function payLabel(t) {
     if (t.method === "계좌") return "계좌";
@@ -1061,7 +1167,7 @@ function AccountDetailScreen({ account, tx, cards, onEdit }) {
         {linkedCard && (
           <div className="flex items-center justify-between" style={{ marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${C.border}` }}>
             <span style={{ fontSize: "11px", color: C.inkMute }}>
-              원 잔액 {won(account.balance)} - {linkedCard.name} 이번달 사용 {won(cardSpend)}
+              원 잔액 {won(account.balance)} - {linkedCard.name} {prevMonthKey ? MONTH_LABEL[prevMonthKey].slice(5) : ""} 사용분 청구 {won(billedCardSpend)}
             </span>
           </div>
         )}
@@ -1496,7 +1602,7 @@ function MonthlyFixedView({ fixed, txAll }) {
   const monthTotals = MONTHS.slice()
     .reverse()
     .map((m) => {
-      const items = (txAll[m] || []).filter((t) => t.type === "expense" && t.recurring === "고정");
+      const items = (txAll[m] || []).filter((t) => t.type === "expense" && !t.canceled && t.recurring === "고정");
       return { m: m.slice(5) + "월", key: m, total: items.reduce((s, t) => s + t.amount, 0), items };
     });
 
@@ -1598,33 +1704,54 @@ function FixedDetailScreen({ fixed, txAll, onEdit }) {
 /* ---------------------------------------------------------- */
 /* Quick add sheet                                                */
 /* ---------------------------------------------------------- */
-function AddSheet({ onClose, onAdd, cards }) {
-  const [form, setForm] = useState({
-    date: "2026-07-28",
-    type: "expense",
-    category: "식비",
-    recurring: "변동",
-    paymentType: "카드",
-    cardKind: "신용",
-    cardIssuer: cards[0] ? cards[0].name : "",
-    amount: "",
-    discount: "",
-    memo: "",
-  });
+function AddSheet({ onClose, onAdd, onSave, onDelete, cards, editTx, defaultDate }) {
+  const [form, setForm] = useState(
+    editTx
+      ? {
+          date: editTx.date,
+          type: editTx.type,
+          category: editTx.category,
+          recurring: editTx.recurring,
+          paymentType: editTx.paymentType || (editTx.method === "현금" ? "현금" : "카드"),
+          cardKind: editTx.cardKind || "신용",
+          cardIssuer: editTx.method === "현금" || editTx.method === "계좌" ? cards[0]?.name || "" : editTx.method,
+          amount: String(editTx.originalAmount ?? editTx.amount ?? ""),
+          discount: editTx.discount ? String(editTx.discount) : "",
+          memo: editTx.memo === "-" ? "" : editTx.memo,
+        }
+      : {
+          date: defaultDate || "2026-07-28",
+          type: "expense",
+          category: "식비",
+          recurring: "변동",
+          paymentType: "카드",
+          cardKind: "신용",
+          cardIssuer: cards[0] ? cards[0].name : "",
+          amount: "",
+          discount: "",
+          memo: "",
+        }
+  );
   const catOptions = form.type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   return (
     <div
       style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 10, borderRadius: "24px", overflow: "hidden" }}
       onClick={onClose}
     >
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px", maxHeight: "85vh", overflowY: "auto" }}>
         <div className="flex items-center justify-between" style={{ marginBottom: "12px" }}>
-          <span style={{ fontSize: "15px", fontWeight: 700 }}>거래 추가</span>
+          <span style={{ fontSize: "15px", fontWeight: 700 }}>{editTx ? "거래 수정" : "거래 추가"}</span>
           <button onClick={onClose} style={{ color: C.inkSoft }}>
             <X size={18} />
           </button>
         </div>
         <div className="flex flex-col gap-2">
+          <input
+            type="date"
+            value={form.date}
+            onChange={(e) => setForm({ ...form, date: e.target.value })}
+            style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
+          />
           <div className="flex gap-2">
             <select
               value={form.type}
@@ -1709,21 +1836,9 @@ function AddSheet({ onClose, onAdd, cards }) {
               </select>
             </div>
           )}
-          <input
-            type="number"
-            placeholder="금액"
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-            style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
-          />
+          <AmountInput placeholder="금액" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />
           {form.type === "expense" && form.paymentType === "카드" && (
-            <input
-              type="number"
-              placeholder="카드할인 (없으면 비워두세요)"
-              value={form.discount}
-              onChange={(e) => setForm({ ...form, discount: e.target.value })}
-              style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
-            />
+            <AmountInput placeholder="카드할인 (없으면 비워두세요)" value={form.discount} onChange={(v) => setForm({ ...form, discount: v })} />
           )}
           <div
             className="flex items-center justify-between"
@@ -1748,13 +1863,26 @@ function AddSheet({ onClose, onAdd, cards }) {
               const discount = form.type === "expense" && form.paymentType === "카드" ? parseInt(form.discount, 10) || 0 : 0;
               const final = Math.max(0, amount - discount);
               const method = form.type === "income" ? "계좌" : form.paymentType === "현금" ? "현금" : form.cardIssuer;
-              onAdd({ id: "t" + Date.now(), ...form, method, amount: final, originalAmount: amount, discount, memo: form.memo || "-" });
+              const txData = { id: editTx ? editTx.id : "t" + Date.now(), ...form, method, amount: final, originalAmount: amount, discount, memo: form.memo || "-" };
+              if (editTx) onSave(txData);
+              else onAdd(txData);
               onClose();
             }}
             style={{ background: C.accent, color: "#fff", borderRadius: "8px", padding: "10px", fontSize: "14px", fontWeight: 700, marginTop: "4px" }}
           >
-            추가하기
+            {editTx ? "수정 저장하기" : "추가하기"}
           </button>
+          {editTx && (
+            <button
+              onClick={() => {
+                onDelete(editTx.id);
+                onClose();
+              }}
+              style={{ color: C.danger, fontSize: "13px", fontWeight: 600, padding: "6px" }}
+            >
+              이 거래 삭제하기
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -2159,12 +2287,9 @@ function LoanFormSheet({ onClose, onAdd, onSave, editLoan }) {
             <span style={{ fontSize: "12px", color: C.inkSoft }}>예상 월 이자</span>
             <span style={{ fontSize: "14px", fontWeight: 700, color: C.accent }}>{won(monthlyInterest)}</span>
           </div>
-          {!editLoan && (
-            <div style={{ fontSize: "11px", color: C.inkMute }}>등록하면 상환일에 맞춰 현금 지출로 거래내역에 자동으로 반영돼요.</div>
-          )}
-          {editLoan && (
-            <div style={{ fontSize: "11px", color: C.inkMute }}>저장하면 이번 달까지의 이자 내역도 새 금액으로 다시 계산돼요.</div>
-          )}
+          <div style={{ fontSize: "11px", color: C.inkMute }}>
+            실제 이자는 매달 달라질 수 있어서, 대출 이자는 거래내역에 자동으로 반영하지 않아요. 이자 결제도 실제 결제한 금액으로 직접 거래를 입력해주세요.
+          </div>
           {error && <div style={{ fontSize: "12px", color: C.danger, fontWeight: 700, background: C.dangerSoft, borderRadius: "8px", padding: "8px 10px" }}>{error}</div>}
           <button
             onClick={() => {
@@ -2214,16 +2339,18 @@ function InstallmentFormSheet({ cards, onClose, onAdd, onSave, editInstallment }
       ? {
           name: editInstallment.name,
           cardId: editInstallment.cardId || (cards[0] ? cards[0].id : ""),
-          totalAmount: String(editInstallment.monthlyAmount * editInstallment.total),
+          totalAmount: String(editInstallment.principal ?? editInstallment.monthlyAmount * editInstallment.total),
+          interestAmount: String(editInstallment.interestAmount || ""),
           total: String(editInstallment.total),
           firstPaymentDate: editInstallment.firstPaymentDate || "2026-07-01",
           interestFree: !!editInstallment.interestFree,
         }
-      : { name: "", cardId: cards[0] ? cards[0].id : "", totalAmount: "", total: "3", firstPaymentDate: "2026-07-01", interestFree: false }
+      : { name: "", cardId: cards[0] ? cards[0].id : "", totalAmount: "", interestAmount: "", total: "3", firstPaymentDate: "2026-07-01", interestFree: false }
   );
   const totalAmountNum = parseInt(form.totalAmount, 10) || 0;
+  const interestAmountNum = form.interestFree ? 0 : parseInt(form.interestAmount, 10) || 0;
   const totalNum = parseInt(form.total, 10) || 1;
-  const monthlyAmount = Math.round(totalAmountNum / totalNum);
+  const monthlyAmount = Math.round((totalAmountNum + interestAmountNum) / totalNum);
   const dueDay = parseInt(form.firstPaymentDate.split("-")[2], 10) || 1;
 
   let paidNum = 0;
@@ -2258,29 +2385,7 @@ function InstallmentFormSheet({ cards, onClose, onAdd, onSave, editInstallment }
               </option>
             ))}
           </select>
-          <input
-            type="number"
-            placeholder="총 할부 금액"
-            value={form.totalAmount}
-            onChange={(e) => setForm({ ...form, totalAmount: e.target.value })}
-            style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
-          />
-          <input
-            type="number"
-            placeholder="총 개월수"
-            value={form.total}
-            onChange={(e) => setForm({ ...form, total: e.target.value })}
-            style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
-          />
-          <div>
-            <div style={{ fontSize: "11px", color: C.inkMute, marginBottom: "4px" }}>최초 결제일 (이 날짜가 1회차예요)</div>
-            <input
-              type="date"
-              value={form.firstPaymentDate}
-              onChange={(e) => setForm({ ...form, firstPaymentDate: e.target.value })}
-              style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px", width: "100%" }}
-            />
-          </div>
+          <AmountInput placeholder="총 할부 원금" value={form.totalAmount} onChange={(v) => setForm({ ...form, totalAmount: v })} />
           <button
             onClick={() => setForm({ ...form, interestFree: !form.interestFree })}
             className="flex items-center gap-2"
@@ -2302,6 +2407,25 @@ function InstallmentFormSheet({ cards, onClose, onAdd, onSave, editInstallment }
             </div>
             <span style={{ fontSize: "13px", fontWeight: 600, color: form.interestFree ? C.accent : C.inkSoft }}>무이자 할부</span>
           </button>
+          {!form.interestFree && (
+            <AmountInput placeholder="총 이자 금액 (할부 전체 기간 합계)" value={form.interestAmount} onChange={(v) => setForm({ ...form, interestAmount: v })} />
+          )}
+          <input
+            type="number"
+            placeholder="총 개월수"
+            value={form.total}
+            onChange={(e) => setForm({ ...form, total: e.target.value })}
+            style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
+          />
+          <div>
+            <div style={{ fontSize: "11px", color: C.inkMute, marginBottom: "4px" }}>최초 결제일 (이 날짜가 1회차예요)</div>
+            <input
+              type="date"
+              value={form.firstPaymentDate}
+              onChange={(e) => setForm({ ...form, firstPaymentDate: e.target.value })}
+              style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px", width: "100%" }}
+            />
+          </div>
           <div className="flex items-center justify-between" style={{ background: C.accentSoft, borderRadius: "8px", padding: "8px 10px" }}>
             <span style={{ fontSize: "12px", color: C.inkSoft }}>회당 결제금액 · 매달 {dueDay}일</span>
             <span style={{ fontSize: "14px", fontWeight: 700, color: C.accent }}>{won(monthlyAmount)}</span>
@@ -2327,6 +2451,8 @@ function InstallmentFormSheet({ cards, onClose, onAdd, onSave, editInstallment }
                 total: totalNum,
                 paid: paidNum,
                 monthlyAmount,
+                principal: totalAmountNum,
+                interestAmount: interestAmountNum,
                 firstPaymentDate: form.firstPaymentDate,
                 dueDay,
                 interestFree: form.interestFree,
@@ -2365,6 +2491,7 @@ export default function BudgetAppPrototype() {
   const [selectedInstallmentId, setSelectedInstallmentId] = useState(null);
   const [txFilter, setTxFilter] = useState("전체");
   const [showAdd, setShowAdd] = useState(false);
+  const [editingTx, setEditingTx] = useState(null);
   const [showAddCard, setShowAddCard] = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [showAddLoan, setShowAddLoan] = useState(false);
@@ -2427,6 +2554,25 @@ export default function BudgetAppPrototype() {
     setTxAll((prev) => ({ ...prev, [month]: typeof updater === "function" ? updater(prev[month] || []) : updater }));
   }
 
+  function addTxSmart(newTx) {
+    const monthKey = newTx.date.slice(0, 7);
+    setTxAll((prev) => ({ ...prev, [monthKey]: [newTx, ...(prev[monthKey] || [])] }));
+  }
+
+  function saveEditedTx(updatedTx, originalMonthKey) {
+    const newMonthKey = updatedTx.date.slice(0, 7);
+    setTxAll((prev) => {
+      const updated = { ...prev };
+      updated[originalMonthKey] = (updated[originalMonthKey] || []).filter((t) => t.id !== updatedTx.id);
+      updated[newMonthKey] = [updatedTx, ...(updated[newMonthKey] || []).filter((t) => t.id !== updatedTx.id)];
+      return updated;
+    });
+  }
+
+  function deleteTxGlobal(txId, monthKey) {
+    setTxAll((prev) => ({ ...prev, [monthKey]: (prev[monthKey] || []).filter((t) => t.id !== txId) }));
+  }
+
   function goTab(t) {
     setTab(t);
     setView(t);
@@ -2461,43 +2607,17 @@ export default function BudgetAppPrototype() {
 
   function addLoanWithTx(loan) {
     setLoans((prev) => [...prev, loan]);
-    const pad = (n) => String(n).padStart(2, "0");
-    MONTHS.forEach((m) => {
-      addTxToMonth(m, {
-        id: "l" + loan.id + "-" + m,
-        date: `${m}-${pad(loan.repayDay)}`,
-        type: "expense",
-        category: "금융·보험",
-        recurring: "고정",
-        paymentType: "현금",
-        method: "현금",
-        amount: loan.monthlyInterest,
-        memo: `${loan.name} 이자상환`,
-      });
-    });
   }
 
   function updateLoanWithTx(loan) {
     setLoans((prev) => prev.map((l) => (l.id === loan.id ? loan : l)));
-    const pad = (n) => String(n).padStart(2, "0");
+    // 실제 이자 금액이 달라질 수 있어서 거래내역에는 자동으로 반영하지 않아요.
+    // 예전에 자동 생성됐던 이자 거래가 있다면 정리해요.
     setTxAll((prev) => {
       const updated = { ...prev };
       MONTHS.forEach((m) => {
         const txId = "l" + loan.id + "-" + m;
-        const newTx = {
-          id: txId,
-          date: `${m}-${pad(loan.repayDay)}`,
-          type: "expense",
-          category: "금융·보험",
-          recurring: "고정",
-          paymentType: "현금",
-          method: "현금",
-          amount: loan.monthlyInterest,
-          memo: `${loan.name} 이자상환`,
-        };
-        const monthItems = updated[m] || [];
-        const exists = monthItems.some((t) => t.id === txId);
-        updated[m] = exists ? monthItems.map((t) => (t.id === txId ? newTx : t)) : [newTx, ...monthItems];
+        updated[m] = (updated[m] || []).filter((t) => t.id !== txId);
       });
       return updated;
     });
@@ -2613,7 +2733,22 @@ export default function BudgetAppPrototype() {
     );
   } else if (view === "transactions") {
     title = "내역";
-    screen = <TransactionsScreen tx={tx} setTx={setTx} filter={txFilter} setFilter={setTxFilter} txAll={txAll} goMonth={goMonth} month={month} setMonth={setMonth} />;
+    screen = (
+      <TransactionsScreen
+        tx={tx}
+        setTx={setTx}
+        filter={txFilter}
+        setFilter={setTxFilter}
+        txAll={txAll}
+        goMonth={goMonth}
+        month={month}
+        setMonth={setMonth}
+        onEditTx={(t) => {
+          setEditingTx(t);
+          setShowAdd(true);
+        }}
+      />
+    );
   } else if (view === "cards") {
     title = "카드 · 통장";
     screen = (
@@ -2648,7 +2783,8 @@ export default function BudgetAppPrototype() {
       <AllAccountsHistoryScreen
         accounts={accounts}
         cards={cards}
-        tx={tx}
+        txAll={txAll}
+        month={month}
         setView={setView}
         setSelectedAccount={setSelectedAccountId}
         onAddAccount={() => {
@@ -2779,17 +2915,31 @@ export default function BudgetAppPrototype() {
           }
         />
         <div style={{ flex: 1, overflowY: "auto" }}>{screen}</div>
-        <BottomNav tab={tab} setTab={goTab} onAdd={() => setShowAdd(true)} />
+        <BottomNav
+          tab={tab}
+          setTab={goTab}
+          onAdd={() => {
+            setEditingTx(null);
+            setShowAdd(true);
+          }}
+        />
         {showAdd && (
           <AddSheet
             cards={cards}
-            onClose={() => setShowAdd(false)}
+            editTx={editingTx}
+            defaultDate={month + "-28"}
+            onClose={() => {
+              setShowAdd(false);
+              setEditingTx(null);
+            }}
             onAdd={(newTx) => {
-              setTx((prev) => [newTx, ...prev]);
+              addTxSmart(newTx);
               setFixed((prev) =>
                 prev.map((f) => (f.name === newTx.memo && f.unusedChecked ? { ...f, unusedChecked: false, lastUsedDays: 0 } : f))
               );
             }}
+            onSave={(updatedTx) => saveEditedTx(updatedTx, month)}
+            onDelete={(txId) => deleteTxGlobal(txId, month)}
           />
         )}
         {showAddCard && (
