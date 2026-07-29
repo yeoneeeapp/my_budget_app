@@ -248,6 +248,7 @@ const TAB_META = {
 /* ---------------------------------------------------------- */
 const FUTURE_MONTHS_AHEAD = 12; // 현재 달 기준 앞으로 12개월까지 미리 넘겨볼 수 있어요
 const MONTHS = buildMonthsRange(START_MONTH, addMonthsToMonthKey(CURRENT_MONTH, FUTURE_MONTHS_AHEAD)); // 최신(미래) 달이 맨 앞 (내림차순), 7월 이전은 존재하지 않음
+const GENERATED_MONTHS = MONTHS.filter((m) => m <= CURRENT_MONTH); // 고정지출 등 자동생성은 오늘 기준 현재 달까지만 (미래 달은 미리 만들지 않음)
 
 const txByMonth = {};
 MONTHS.forEach((m) => {
@@ -2862,15 +2863,15 @@ export default function BudgetAppPrototype() {
     return () => clearTimeout(timer);
   }, [loaded, txAll, fixed, cards, accounts, loans, installments]);
 
-  // 고정지출은 등록 시점 이후로 MONTHS 범위가 늘어날 수 있어서(예: 다음 달이 됨),
-  // 활성화된(미사용 체크 안 된) 고정지출 항목은 항상 모든 추적 달에 내역이 채워지도록 보정해요.
+  // 고정지출은 오늘 날짜 기준 "현재 달"까지만 자동으로 내역이 채워져요 (미래 달은 미리 만들지 않아요).
+  // 시간이 지나 현재 달이 바뀌면(예: 8월이 되면) 그만큼 자동으로 새 달의 내역이 채워져요.
   useEffect(() => {
     if (!loaded) return;
     const missing = [];
     fixed
       .filter((f) => !f.unusedChecked)
       .forEach((f) => {
-        MONTHS.forEach((m) => {
+        GENERATED_MONTHS.forEach((m) => {
           const txId = "fx" + f.id + "-" + m;
           const exists = (txAll[m] || []).some((t) => t.id === txId);
           if (!exists) missing.push({ m, tx: fixedTxObj(f, m) });
@@ -2977,7 +2978,7 @@ export default function BudgetAppPrototype() {
 
   function addLoanWithTx(loan) {
     setLoans((prev) => [...prev, loan]);
-    MONTHS.forEach((m) => {
+    GENERATED_MONTHS.forEach((m) => {
       if (monthsBetween(loan.startDate, m) < 1) return; // 시작 다음 달부터
       const txObj = loanInterestTxObj(loan, m, accounts);
       if (txObj.amount > 0) addTxToMonth(m, txObj);
@@ -2987,9 +2988,9 @@ export default function BudgetAppPrototype() {
   function updateLoanWithTx(loan) {
     setLoans((prev) => prev.map((l) => (l.id === loan.id ? loan : l)));
     // 금액/이자율/상환방식이 바뀌어도 지난 달 내역(이미 직접 수정했을 수도 있는)은 그대로 두고,
-    // 이번 달(수정 시점) 이후 달만 새로 계산해서 반영해요.
+    // 이번 달(수정 시점) 이후 달만 새로 계산해서 반영해요. 오늘 기준 현재 달을 넘어서는 미래 달은 만들지 않아요.
     const idx = MONTHS.indexOf(month);
-    const affectedMonths = idx === -1 ? [month] : MONTHS.slice(0, idx + 1);
+    const affectedMonths = (idx === -1 ? [month] : MONTHS.slice(0, idx + 1)).filter((m) => m <= CURRENT_MONTH);
     setTxAll((prev) => {
       const updated = { ...prev };
       affectedMonths.forEach((m) => {
@@ -3046,14 +3047,15 @@ export default function BudgetAppPrototype() {
 
   function addFixedWithTx(item) {
     setFixed((prev) => [...prev, item]);
-    MONTHS.forEach((m) => addTxToMonth(m, fixedTxObj(item, m)));
+    GENERATED_MONTHS.forEach((m) => addTxToMonth(m, fixedTxObj(item, m)));
   }
 
   function updateFixedWithTx(item) {
     setFixed((prev) => prev.map((f) => (f.id === item.id ? item : f)));
     // 금액/카드가 바뀌어도 지난 달 내역은 그대로 두고, 이번 달(수정하는 시점) 이후부터만 새 값으로 반영해요.
+    // 단, 오늘 기준 현재 달을 넘어서는 미래 달에는 새로 만들지 않아요.
     const idx = MONTHS.indexOf(month);
-    const affectedMonths = idx === -1 ? [month] : MONTHS.slice(0, idx + 1);
+    const affectedMonths = (idx === -1 ? [month] : MONTHS.slice(0, idx + 1)).filter((m) => m <= CURRENT_MONTH);
     setTxAll((prev) => {
       const updated = { ...prev };
       affectedMonths.forEach((m) => {
