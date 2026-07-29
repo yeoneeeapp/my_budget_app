@@ -227,6 +227,12 @@ function buildMonthsRange(startKey, endKey) {
   return arr;
 }
 
+function addMonthsToMonthKey(monthKey, k) {
+  const [y, m] = monthKey.split("-").map(Number);
+  const total = y * 12 + (m - 1) + k;
+  return `${Math.floor(total / 12)}-${pad2((total % 12) + 1)}`;
+}
+
 const TAB_META = {
   home: { label: "HOME", icon: Home },
   transactions: { label: "내역", icon: List },
@@ -237,7 +243,8 @@ const TAB_META = {
 /* ---------------------------------------------------------- */
 /* Seed data                                                    */
 /* ---------------------------------------------------------- */
-const MONTHS = buildMonthsRange(START_MONTH, CURRENT_MONTH); // 최신 달이 맨 앞 (내림차순), 7월 이전은 존재하지 않음
+const FUTURE_MONTHS_AHEAD = 12; // 현재 달 기준 앞으로 12개월까지 미리 넘겨볼 수 있어요
+const MONTHS = buildMonthsRange(START_MONTH, addMonthsToMonthKey(CURRENT_MONTH, FUTURE_MONTHS_AHEAD)); // 최신(미래) 달이 맨 앞 (내림차순), 7월 이전은 존재하지 않음
 
 const txByMonth = {};
 MONTHS.forEach((m) => {
@@ -354,12 +361,10 @@ function Header({ tabKey, title, onBack, right, month, setMonth, onQuickAdd }) {
   );
 }
 
-function BottomNav({ tab, setTab, onAdd }) {
+function BottomNav({ tab, setTab }) {
   const items = [
     { key: "home", label: "HOME", icon: Home },
     { key: "transactions", label: "내역", icon: List },
-  ];
-  const items2 = [
     { key: "cards", label: "카드·통장", icon: CreditCard },
     { key: "fixed", label: "고정지출", icon: Repeat },
   ];
@@ -383,24 +388,6 @@ function BottomNav({ tab, setTab, onAdd }) {
       style={{ padding: "10px 8px", borderTop: `1px solid ${C.border}`, background: C.card }}
     >
       {items.map((it) => (
-        <Item key={it.key} it={it} />
-      ))}
-      <button
-        onClick={onAdd}
-        style={{
-          width: "40px",
-          height: "40px",
-          borderRadius: "50%",
-          background: C.accent,
-          color: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Plus size={20} />
-      </button>
-      {items2.map((it) => (
         <Item key={it.key} it={it} />
       ))}
     </div>
@@ -432,7 +419,10 @@ function HomeScreen({ tx, txAll, month, cards, loans, accounts, goTransactions, 
     return Object.entries(map).map(([name, value]) => ({ name, value }));
   }, [tx]);
 
-  const trendData = MONTHS.slice()
+  const monthIdx = MONTHS.indexOf(month);
+  const recentMonths = MONTHS.slice(monthIdx, monthIdx + 4); // 현재 보는 달부터 과거 4개월 (내림차순)
+  const trendData = recentMonths
+    .slice()
     .reverse()
     .map((m) => {
       const items = txAll[m] || [];
@@ -2754,6 +2744,32 @@ export default function BudgetAppPrototype() {
     return () => clearTimeout(timer);
   }, [loaded, txAll, fixed, cards, accounts, loans, installments]);
 
+  // 고정지출은 등록 시점 이후로 MONTHS 범위가 늘어날 수 있어서(예: 다음 달이 됨),
+  // 활성화된(미사용 체크 안 된) 고정지출 항목은 항상 모든 추적 달에 내역이 채워지도록 보정해요.
+  useEffect(() => {
+    if (!loaded) return;
+    const missing = [];
+    fixed
+      .filter((f) => !f.unusedChecked)
+      .forEach((f) => {
+        MONTHS.forEach((m) => {
+          const txId = "fx" + f.id + "-" + m;
+          const exists = (txAll[m] || []).some((t) => t.id === txId);
+          if (!exists) missing.push({ m, tx: fixedTxObj(f, m) });
+        });
+      });
+    if (missing.length > 0) {
+      setTxAll((prev) => {
+        const updated = { ...prev };
+        missing.forEach(({ m, tx: txObj }) => {
+          updated[m] = [txObj, ...(updated[m] || [])];
+        });
+        return updated;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, fixed]);
+
   const tx = txAll[month] || [];
   function setTx(updater) {
     setTxAll((prev) => ({ ...prev, [month]: typeof updater === "function" ? updater(prev[month] || []) : updater }));
@@ -3094,6 +3110,8 @@ export default function BudgetAppPrototype() {
       <AccountDetailScreen
         account={selectedAccount}
         tx={tx}
+        txAll={txAll}
+        month={month}
         cards={cards}
         onEdit={() => {
           setEditingAccount(selectedAccount);
@@ -3197,14 +3215,7 @@ export default function BudgetAppPrototype() {
           }
         />
         <div style={{ flex: 1, overflowY: "auto" }}>{screen}</div>
-        <BottomNav
-          tab={tab}
-          setTab={goTab}
-          onAdd={() => {
-            setEditingTx(null);
-            setShowAdd(true);
-          }}
-        />
+        <BottomNav tab={tab} setTab={goTab} />
         {showAdd && (
           <AddSheet
             cards={cards}
