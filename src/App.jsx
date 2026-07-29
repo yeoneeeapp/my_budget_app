@@ -33,6 +33,7 @@ import {
   Check,
   Dumbbell,
   Stethoscope,
+  Users,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -72,7 +73,7 @@ const C = {
   pBlue2: "#3182F6",
 };
 
-const EXPENSE_CATEGORIES = ["식비", "배달", "자동차", "교통", "카페", "생활", "문화·여가", "주거·통신", "의복·미용", "데이트", "금융·보험", "구독비", "운동", "의료"].sort((a, b) => a.localeCompare(b, "ko"));
+const EXPENSE_CATEGORIES = ["식비", "배달", "자동차", "교통", "카페", "생활", "문화·여가", "주거·통신", "의복·미용", "데이트", "금융·보험", "구독비", "운동", "의료", "선물", "가족"].sort((a, b) => a.localeCompare(b, "ko"));
 const INCOME_CATEGORIES = ["급여", "부수입", "금융", "기타", "보험금", "주식"].sort((a, b) => a.localeCompare(b, "ko"));
 
 const GREEN_RAMP = ["#3182F6", "#5B9BF8", "#85B4FA", "#AECDFB", "#1B64C7", "#0F4A9C"];
@@ -97,6 +98,8 @@ const CAT_COLORS = {
   주식: GREEN_RAMP[5],
   운동: GREEN_RAMP[0],
   의료: GREEN_RAMP[1],
+  선물: GREEN_RAMP[2],
+  가족: GREEN_RAMP[3],
 };
 
 const CAT_ICON = {
@@ -120,6 +123,8 @@ const CAT_ICON = {
   주식: TrendingUp,
   운동: Dumbbell,
   의료: Stethoscope,
+  선물: Gift,
+  가족: Users,
 };
 
 const won = (n) => Math.round(Math.abs(n)).toLocaleString("ko-KR") + "원";
@@ -170,6 +175,42 @@ function addMonthsToDateStr(dateStr, k) {
   const daysInMonth = new Date(ny, nm, 0).getDate();
   const nd = Math.min(d, daysInMonth);
   return `${ny}-${pad2(nm)}-${pad2(nd)}`;
+}
+
+function monthsBetween(aKey, bKey) {
+  const [ay, am] = aKey.slice(0, 7).split("-").map(Number);
+  const [by, bm] = bKey.slice(0, 7).split("-").map(Number);
+  return by * 12 + bm - (ay * 12 + am);
+}
+
+function loanTermMonths(loan) {
+  if (!loan.maturityDate) return null;
+  const t = monthsBetween(loan.startDate, loan.maturityDate);
+  return t > 0 ? t : null;
+}
+
+// 상환방식에 따라 특정 달(monthKey)에 내야 하는 이자를 대략적으로 계산해요.
+// (대출 시작 다음 달부터 이자가 발생한다고 가정)
+function loanInterestForMonth(loan, monthKey) {
+  const elapsed = monthsBetween(loan.startDate, monthKey);
+  if (elapsed < 1) return 0;
+  const rate = (loan.interestRate || 0) / 100 / 12;
+  const term = loanTermMonths(loan);
+
+  if (loan.repaymentType === "원금균등상환" && term) {
+    const principalPerMonth = loan.balance / term;
+    const remaining = Math.max(0, loan.balance - principalPerMonth * (elapsed - 1));
+    return Math.round(remaining * rate);
+  }
+  if (loan.repaymentType === "원리금균등상환" && term && rate > 0) {
+    const n = term;
+    const growth = Math.pow(1 + rate, n);
+    const paidGrowth = Math.pow(1 + rate, elapsed - 1);
+    const remaining = Math.max(0, (loan.balance * (growth - paidGrowth)) / (growth - 1));
+    return Math.round(remaining * rate);
+  }
+  // 만기일시상환(원금은 만기에 한번에), 또는 상환방식 미지정 시: 매달 원금 전체에 대한 이자
+  return Math.round(loan.balance * rate);
 }
 
 function buildMonthsRange(startKey, endKey) {
@@ -234,7 +275,7 @@ const MONTH_RANGE = new Proxy({}, { get: (_, key) => buildMonthRange(key) });
 /* ---------------------------------------------------------- */
 /* Shared bits                                                  */
 /* ---------------------------------------------------------- */
-function Header({ tabKey, title, onBack, right, month, setMonth }) {
+function Header({ tabKey, title, onBack, right, month, setMonth, onQuickAdd }) {
   const isTabScreen = !onBack && TAB_META[tabKey];
 
   return (
@@ -265,7 +306,7 @@ function Header({ tabKey, title, onBack, right, month, setMonth }) {
         <div style={{ width: "24px", display: "flex", justifyContent: "flex-end" }}>{right}</div>
       </div>
       {tabKey === "home" && month && setMonth && (
-        <div style={{ marginTop: "10px", display: "flex", justifyContent: "flex-start" }}>
+        <div className="flex items-center justify-between" style={{ marginTop: "10px" }}>
           <div style={{ position: "relative", display: "inline-block" }}>
             <select
               value={month}
@@ -290,6 +331,23 @@ function Header({ tabKey, title, onBack, right, month, setMonth }) {
             </select>
             <ChevronDown size={14} style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "#fff" }} />
           </div>
+          {onQuickAdd && (
+            <button
+              onClick={onQuickAdd}
+              style={{
+                width: "30px",
+                height: "30px",
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.25)",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Plus size={18} />
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -569,11 +627,13 @@ function CalendarView({ month, tx }) {
   const daysInMonth = new Date(y, m, 0).getDate();
   const firstWeekday = new Date(y, m - 1, 1).getDay();
   const byDay = {};
-  tx.forEach((t) => {
+  (tx || []).forEach((t) => {
+    if (!t || !t.date) return;
     const d = parseInt(t.date.slice(8, 10), 10);
+    if (!d || Number.isNaN(d)) return;
     byDay[d] = byDay[d] || { income: 0, expense: 0 };
-    if (t.type === "income") byDay[d].income += t.amount;
-    else if (!t.canceled) byDay[d].expense += t.amount;
+    if (t.type === "income") byDay[d].income += t.amount || 0;
+    else if (!t.canceled) byDay[d].expense += t.amount || 0;
   });
 
   const cells = [];
@@ -620,11 +680,13 @@ function WeeklyView({ month, tx }) {
   const firstWeekday = new Date(y, m - 1, 1).getDay();
 
   const byDay = {};
-  tx.forEach((t) => {
+  (tx || []).forEach((t) => {
+    if (!t || !t.date) return;
     const d = parseInt(t.date.slice(8, 10), 10);
+    if (!d || Number.isNaN(d)) return;
     byDay[d] = byDay[d] || { income: 0, expense: 0 };
-    if (t.type === "income") byDay[d].income += t.amount;
-    else if (!t.canceled) byDay[d].expense += t.amount;
+    if (t.type === "income") byDay[d].income += t.amount || 0;
+    else if (!t.canceled) byDay[d].expense += t.amount || 0;
   });
 
   const weeks = [];
@@ -1184,7 +1246,13 @@ function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
   const linkedCards = cards.filter((c) => (account.linkedCardIds || []).includes(c.id));
   const linkedMethods = linkedCards.map((c) => c.method);
   const accountTx = tx
-    .filter((t) => (t.type === "income" ? t.toAccount === account.name : t.method === "계좌" || linkedMethods.includes(t.method)))
+    .filter((t) => {
+      if (t.type === "income") return t.toAccount === account.name;
+      if (t.method !== "계좌") return linkedMethods.includes(t.method);
+      // 계좌 결제 항목 중 특정 통장이 지정된 경우(예: 대출 이자) 그 통장에서만 보여요.
+      // 통장이 지정 안 된 일반 계좌 항목(고정지출 등)은 지금까지처럼 모든 통장에 보여요.
+      return !t.fromAccount || t.fromAccount === account.name;
+    })
     .sort((a, b) => (a.date < b.date ? 1 : -1));
   // 카드 사용액은 보통 다음 달 결제일에 실제로 통장에서 빠져나가므로, 이번 달에 청구되는 금액은 '전월' 카드 사용액이에요.
   const prevMonthKey = MONTHS[MONTHS.indexOf(month) + 1];
@@ -1261,8 +1329,18 @@ function AccountDetailScreen({ account, tx, txAll, month, cards, onEdit }) {
   );
 }
 
-function LoanDetailScreen({ loan, onPayoff, onEdit }) {
+function LoanDetailScreen({ loan, txAll, accounts, onPayoff, onEdit }) {
   if (!loan) return null;
+  const linkedAccount = accounts.find((a) => a.id === loan.linkedAccountId);
+  const interestHistory = MONTHS.slice()
+    .reverse()
+    .map((m) => {
+      const items = (txAll[m] || []).filter((t) => t.id === "l" + loan.id + "-" + m);
+      const amt = items.reduce((s, t) => s + t.amount, 0);
+      return { m, amt };
+    })
+    .filter((h) => h.amt > 0);
+
   return (
     <div style={{ padding: "12px 16px 16px" }}>
       <div style={{ background: C.card, borderRadius: "12px", padding: "14px", marginBottom: "14px", border: `1px solid ${C.border}` }}>
@@ -1271,7 +1349,7 @@ function LoanDetailScreen({ loan, onPayoff, onEdit }) {
           <span style={{ fontSize: "18px", fontWeight: 700 }}>{won(loan.balance)}</span>
         </div>
         <div style={{ fontSize: "12px", color: C.inkSoft }}>
-          이자율 연 {loan.interestRate}% · 월 이자 {won(loan.monthlyInterest)}
+          이자율 연 {loan.interestRate}% · 예상 월 이자 {won(loan.monthlyInterest)}
         </div>
       </div>
 
@@ -1298,10 +1376,26 @@ function LoanDetailScreen({ loan, onPayoff, onEdit }) {
           <span style={{ fontSize: "12px", color: C.inkSoft }}>대출금 상환일</span>
           <span style={{ fontSize: "13px", fontWeight: 600 }}>매달 {loan.repayDay}일</span>
         </div>
-        <div className="flex items-center justify-between" style={{ padding: "6px 0" }}>
+        <div className="flex items-center justify-between" style={{ padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
           <span style={{ fontSize: "12px", color: C.inkSoft }}>상환방식</span>
           <span style={{ fontSize: "13px", fontWeight: 600 }}>{loan.repaymentType || "-"}</span>
         </div>
+        <div className="flex items-center justify-between" style={{ padding: "6px 0" }}>
+          <span style={{ fontSize: "12px", color: C.inkSoft }}>이자 출금 통장</span>
+          <span style={{ fontSize: "13px", fontWeight: 600 }}>{linkedAccount ? linkedAccount.name : "-"}</span>
+        </div>
+      </div>
+
+      <div style={{ fontSize: "13px", fontWeight: 700, color: C.inkSoft, marginBottom: "8px" }}>이자 납부 내역</div>
+      <div style={{ marginBottom: "16px" }}>
+        {interestHistory.map((h) => (
+          <div key={h.m} className="flex items-center justify-between" style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+            <span style={{ fontSize: "13px" }}>{MONTH_LABEL[h.m]}</span>
+            <span style={{ fontSize: "13px" }}>{won(h.amt)}</span>
+          </div>
+        ))}
+        {interestHistory.length === 0 && <div style={{ textAlign: "center", color: C.inkMute, fontSize: "13px", padding: "16px 0" }}>이자 납부 내역이 없어요.</div>}
+        <div style={{ fontSize: "11px", color: C.inkMute, marginTop: "6px" }}>내역 탭에서 이 대출의 이자 거래를 수정하면 여기에도 바로 반영돼요.</div>
       </div>
 
       <button
@@ -2281,7 +2375,7 @@ function FixedFormSheet({ cards, onClose, onAdd, onSave, editFixed }) {
   );
 }
 
-function LoanFormSheet({ onClose, onAdd, onSave, editLoan }) {
+function LoanFormSheet({ accounts, onClose, onAdd, onSave, editLoan }) {
   const [form, setForm] = useState(
     editLoan
       ? {
@@ -2293,8 +2387,19 @@ function LoanFormSheet({ onClose, onAdd, onSave, editLoan }) {
           maturityDate: editLoan.maturityDate || "",
           repayDay: String(editLoan.repayDay),
           repaymentType: editLoan.repaymentType || REPAYMENT_TYPES[0],
+          linkedAccountId: editLoan.linkedAccountId || "",
         }
-      : { name: "", bank: BANKS[0], balance: "", interestRate: "", startDate: TODAY, maturityDate: "", repayDay: "15", repaymentType: REPAYMENT_TYPES[0] }
+      : {
+          name: "",
+          bank: BANKS[0],
+          balance: "",
+          interestRate: "",
+          startDate: TODAY,
+          maturityDate: "",
+          repayDay: "15",
+          repaymentType: REPAYMENT_TYPES[0],
+          linkedAccountId: accounts[0] ? accounts[0].id : "",
+        }
   );
   const [error, setError] = useState("");
   const balanceNum = parseInt(form.balance, 10) || 0;
@@ -2374,12 +2479,20 @@ function LoanFormSheet({ onClose, onAdd, onSave, editLoan }) {
               </option>
             ))}
           </select>
+          <select value={form.linkedAccountId} onChange={(e) => setForm({ ...form, linkedAccountId: e.target.value })} style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}>
+            <option value="">이자 출금 통장 선택 안 함</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}에서 이자 출금
+              </option>
+            ))}
+          </select>
           <div className="flex items-center justify-between" style={{ background: C.accentSoft, borderRadius: "8px", padding: "8px 10px" }}>
             <span style={{ fontSize: "12px", color: C.inkSoft }}>예상 월 이자</span>
             <span style={{ fontSize: "14px", fontWeight: 700, color: C.accent }}>{won(monthlyInterest)}</span>
           </div>
           <div style={{ fontSize: "11px", color: C.inkMute }}>
-            실제 이자는 매달 달라질 수 있어서, 대출 이자는 거래내역에 자동으로 반영하지 않아요. 이자 결제도 실제 결제한 금액으로 직접 거래를 입력해주세요.
+            대출 시작 다음 달부터, 선택한 상환방식에 따라 계산된 이자가 거래내역에 자동으로 반영돼요. 실제 이자와 다르면 내역에서 직접 수정하시면 돼요.
           </div>
           {error && <div style={{ fontSize: "12px", color: C.danger, fontWeight: 700, background: C.dangerSoft, borderRadius: "8px", padding: "8px 10px" }}>{error}</div>}
           <button
@@ -2406,6 +2519,7 @@ function LoanFormSheet({ onClose, onAdd, onSave, editLoan }) {
                   maturityDate: form.maturityDate || "",
                   repayDay,
                   repaymentType: form.repaymentType,
+                  linkedAccountId: form.linkedAccountId || null,
                 };
                 if (editLoan) onSave(loanData);
                 else onAdd(loanData);
@@ -2700,19 +2814,49 @@ export default function BudgetAppPrototype() {
     setTxAll((prev) => ({ ...prev, [monthKey]: [txObj, ...(prev[monthKey] || [])] }));
   }
 
+  function loanInterestTxObj(loan, monthKey, accounts2) {
+    const account = accounts2.find((a) => a.id === loan.linkedAccountId);
+    return {
+      id: "l" + loan.id + "-" + monthKey,
+      date: `${monthKey}-${pad2(loan.repayDay)}`,
+      type: "expense",
+      category: "금융·보험",
+      recurring: "고정",
+      paymentType: "계좌",
+      method: "계좌",
+      fromAccount: account ? account.name : undefined,
+      amount: loanInterestForMonth(loan, monthKey),
+      memo: `${loan.name} 이자상환`,
+    };
+  }
+
   function addLoanWithTx(loan) {
     setLoans((prev) => [...prev, loan]);
+    MONTHS.forEach((m) => {
+      if (monthsBetween(loan.startDate, m) < 1) return; // 시작 다음 달부터
+      const txObj = loanInterestTxObj(loan, m, accounts);
+      if (txObj.amount > 0) addTxToMonth(m, txObj);
+    });
   }
 
   function updateLoanWithTx(loan) {
     setLoans((prev) => prev.map((l) => (l.id === loan.id ? loan : l)));
-    // 실제 이자 금액이 달라질 수 있어서 거래내역에는 자동으로 반영하지 않아요.
-    // 예전에 자동 생성됐던 이자 거래가 있다면 정리해요.
+    // 금액/이자율/상환방식이 바뀌어도 지난 달 내역(이미 직접 수정했을 수도 있는)은 그대로 두고,
+    // 이번 달(수정 시점) 이후 달만 새로 계산해서 반영해요.
+    const idx = MONTHS.indexOf(month);
+    const affectedMonths = idx === -1 ? [month] : MONTHS.slice(0, idx + 1);
     setTxAll((prev) => {
       const updated = { ...prev };
-      MONTHS.forEach((m) => {
+      affectedMonths.forEach((m) => {
         const txId = "l" + loan.id + "-" + m;
-        updated[m] = (updated[m] || []).filter((t) => t.id !== txId);
+        if (monthsBetween(loan.startDate, m) < 1) {
+          updated[m] = (updated[m] || []).filter((t) => t.id !== txId);
+          return;
+        }
+        const newTx = loanInterestTxObj(loan, m, accounts);
+        const monthItems = updated[m] || [];
+        const exists = monthItems.some((t) => t.id === txId);
+        updated[m] = exists ? monthItems.map((t) => (t.id === txId ? newTx : t)) : newTx.amount > 0 ? [newTx, ...monthItems] : monthItems;
       });
       return updated;
     });
@@ -2931,6 +3075,8 @@ export default function BudgetAppPrototype() {
     screen = (
       <LoanDetailScreen
         loan={selectedLoan}
+        txAll={txAll}
+        accounts={accounts}
         onPayoff={() => {
           setLoans((prev) => prev.filter((l) => l.id !== selectedLoanId));
           setView("loansList");
@@ -3020,6 +3166,14 @@ export default function BudgetAppPrototype() {
           onBack={onBack}
           month={month}
           setMonth={setMonth}
+          onQuickAdd={
+            tab === "home"
+              ? () => {
+                  setEditingTx(null);
+                  setShowAdd(true);
+                }
+              : null
+          }
           right={
             view === "transactions" ? (
               <Search size={18} color="#fff" />
@@ -3082,6 +3236,7 @@ export default function BudgetAppPrototype() {
         )}
         {showAddLoan && (
           <LoanFormSheet
+            accounts={accounts}
             editLoan={editingLoan}
             onClose={() => {
               setShowAddLoan(false);
