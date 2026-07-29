@@ -249,6 +249,7 @@ const TAB_META = {
 const FUTURE_MONTHS_AHEAD = 12; // 현재 달 기준 앞으로 12개월까지 미리 넘겨볼 수 있어요
 const MONTHS = buildMonthsRange(START_MONTH, addMonthsToMonthKey(CURRENT_MONTH, FUTURE_MONTHS_AHEAD)); // 최신(미래) 달이 맨 앞 (내림차순), 7월 이전은 존재하지 않음
 const GENERATED_MONTHS = MONTHS.filter((m) => m <= CURRENT_MONTH); // 고정지출 등 자동생성은 오늘 기준 현재 달까지만 (미래 달은 미리 만들지 않음)
+const HOME_MONTH_OPTIONS = MONTHS.filter((m) => Math.abs(monthsBetween(CURRENT_MONTH, m)) <= 3); // 홈 화면 월 선택은 오늘 기준 전후 3개월만
 
 const txByMonth = {};
 MONTHS.forEach((m) => {
@@ -334,7 +335,7 @@ function Header({ tabKey, title, onBack, right, month, setMonth, onQuickAdd }) {
                 textAlign: "center",
               }}
             >
-              {MONTHS.map((m) => (
+              {HOME_MONTH_OPTIONS.map((m) => (
                 <option key={m} value={m} style={{ color: "#000" }}>
                   {MONTH_LABEL[m]}
                 </option>
@@ -2260,8 +2261,10 @@ function AccountFormSheet({ cards, onClose, onAdd, onSave, editAccount }) {
           accountNumber: editAccount.accountNumber === "-" ? "" : editAccount.accountNumber,
           linkedCardIds: editAccount.linkedCardIds || [],
           balance: String(editAccount.balance),
+          autoTransferDay: String(editAccount.autoTransferDay || 25),
+          autoTransferAmount: editAccount.autoTransferAmount ? String(editAccount.autoTransferAmount) : "",
         }
-      : { name: "", bank: BANKS[0], type: "입출금", accountNumber: "", linkedCardIds: [], balance: "" }
+      : { name: "", bank: BANKS[0], type: "입출금", accountNumber: "", linkedCardIds: [], balance: "", autoTransferDay: "25", autoTransferAmount: "" }
   );
 
   function toggleCard(cardId) {
@@ -2342,6 +2345,19 @@ function AccountFormSheet({ cards, onClose, onAdd, onSave, editAccount }) {
             </div>
           </div>
           <AmountInput placeholder="현재 잔액" value={form.balance} onChange={(v) => setForm({ ...form, balance: v })} />
+          {form.type === "적금" && (
+            <div className="flex flex-col gap-2">
+              <input
+                type="number"
+                placeholder="자동이체일 (매달 며칠, 1~31)"
+                value={form.autoTransferDay}
+                onChange={(e) => setForm({ ...form, autoTransferDay: e.target.value })}
+                style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}
+              />
+              <AmountInput placeholder="자동이체 금액" value={form.autoTransferAmount} onChange={(v) => setForm({ ...form, autoTransferAmount: v })} />
+              <div style={{ fontSize: "11px", color: C.inkMute }}>매달 자동이체일에 내역에 자동으로 반영돼요. 휴일 등으로 날짜가 밀리면 내역에서 그 거래를 직접 수정하시면 돼요.</div>
+            </div>
+          )}
           <button
             onClick={() => {
               if (!form.name.trim()) return;
@@ -2354,6 +2370,8 @@ function AccountFormSheet({ cards, onClose, onAdd, onSave, editAccount }) {
                 accountNumber: form.accountNumber || "-",
                 balance: parseInt(form.balance, 10) || 0,
                 linkedCardIds: form.linkedCardIds,
+                autoTransferDay: form.type === "적금" ? parseInt(form.autoTransferDay, 10) || 25 : null,
+                autoTransferAmount: form.type === "적금" ? parseInt(form.autoTransferAmount, 10) || 0 : 0,
                 note: linkedCards.length > 0 ? `연결된 카드: ${linkedCards.map((c) => c.name).join(", ")}` : "연결된 카드 없음",
               };
               if (editAccount) onSave(accountData);
@@ -2889,6 +2907,31 @@ export default function BudgetAppPrototype() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, fixed]);
 
+  // 적금 자동이체도 고정지출과 같은 방식으로, 오늘 날짜 기준 현재 달까지 빠짐없이 채워지도록 보정해요.
+  useEffect(() => {
+    if (!loaded) return;
+    const missing = [];
+    accounts
+      .filter((a) => a.type === "적금" && a.autoTransferAmount > 0)
+      .forEach((a) => {
+        GENERATED_MONTHS.forEach((m) => {
+          const txId = "sv" + a.id + "-" + m;
+          const exists = (txAll[m] || []).some((t) => t.id === txId);
+          if (!exists) missing.push({ m, tx: savingsTxObj(a, m) });
+        });
+      });
+    if (missing.length > 0) {
+      setTxAll((prev) => {
+        const updated = { ...prev };
+        missing.forEach(({ m, tx: txObj }) => {
+          updated[m] = [txObj, ...(updated[m] || [])];
+        });
+        return updated;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, accounts]);
+
   const tx = txAll[month] || [];
   function setTx(updater) {
     setTxAll((prev) => ({ ...prev, [month]: typeof updater === "function" ? updater(prev[month] || []) : updater }));
@@ -3064,6 +3107,51 @@ export default function BudgetAppPrototype() {
         const exists = monthItems.some((t) => t.id === txId);
         const newTx = fixedTxObj(item, m);
         updated[m] = exists ? monthItems.map((t) => (t.id === txId ? newTx : t)) : monthItems;
+      });
+      return updated;
+    });
+  }
+
+  function savingsTxObj(account, monthKey) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return {
+      id: "sv" + account.id + "-" + monthKey,
+      date: `${monthKey}-${pad(account.autoTransferDay || 25)}`,
+      type: "transfer",
+      category: "이체",
+      recurring: "고정",
+      method: "현금",
+      transferFrom: "현금",
+      transferTo: account.name,
+      amount: account.autoTransferAmount || 0,
+      memo: `${account.name} 자동이체`,
+    };
+  }
+
+  function addAccountWithTx(account) {
+    setAccounts((prev) => [...prev, account]);
+    if (account.type === "적금" && account.autoTransferAmount > 0) {
+      GENERATED_MONTHS.forEach((m) => addTxToMonth(m, savingsTxObj(account, m)));
+    }
+  }
+
+  function updateAccountWithTx(account) {
+    setAccounts((prev) => prev.map((a) => (a.id === account.id ? account : a)));
+    // 자동이체 금액/날짜가 바뀌어도 지난 달 내역은 그대로 두고, 이번 달 이후부터만 반영해요.
+    const idx = MONTHS.indexOf(month);
+    const affectedMonths = (idx === -1 ? [month] : MONTHS.slice(0, idx + 1)).filter((m) => m <= CURRENT_MONTH);
+    setTxAll((prev) => {
+      const updated = { ...prev };
+      affectedMonths.forEach((m) => {
+        const txId = "sv" + account.id + "-" + m;
+        const monthItems = updated[m] || [];
+        const exists = monthItems.some((t) => t.id === txId);
+        if (account.type !== "적금" || !(account.autoTransferAmount > 0)) {
+          if (exists) updated[m] = monthItems.filter((t) => t.id !== txId);
+          return;
+        }
+        const newTx = savingsTxObj(account, m);
+        updated[m] = exists ? monthItems.map((t) => (t.id === txId ? newTx : t)) : [newTx, ...monthItems];
       });
       return updated;
     });
@@ -3387,8 +3475,8 @@ export default function BudgetAppPrototype() {
               setShowAddAccount(false);
               setEditingAccount(null);
             }}
-            onAdd={(newAccount) => setAccounts((prev) => [...prev, newAccount])}
-            onSave={(updatedAccount) => setAccounts((prev) => prev.map((a) => (a.id === updatedAccount.id ? updatedAccount : a)))}
+            onAdd={addAccountWithTx}
+            onSave={updateAccountWithTx}
           />
         )}
         {showAddLoan && (
