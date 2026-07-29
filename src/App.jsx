@@ -1676,7 +1676,7 @@ function FixedScreen({ fixed, txAll, setView, setSelectedFixed, onToggleUnused, 
           </div>
           <div style={{ fontSize: "14px", fontWeight: 700 }}>{won(f.amount)}</div>
         </button>
-        {isSubscription && (
+        {isSubscription && mode === "미사용" && (
           <button
             onClick={(e) => {
               e.stopPropagation();
