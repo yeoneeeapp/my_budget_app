@@ -303,7 +303,7 @@ function Header({ tabKey, title, onBack, right, month, setMonth, onQuickAdd }) {
         >
           {title}
         </span>
-        <div style={{ width: "24px", display: "flex", justifyContent: "flex-end" }}>{right}</div>
+        <div style={{ minWidth: "24px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "10px" }}>{right}</div>
       </div>
       {tabKey === "home" && month && setMonth && (
         <div className="flex items-center justify-between" style={{ marginTop: "10px" }}>
@@ -1869,7 +1869,7 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, editTx, d
   const catOptions = form.type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   return (
     <div
-      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 10, borderRadius: "24px", overflow: "hidden" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
       onClick={onClose}
     >
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px", maxHeight: "85vh", overflowY: "auto" }}>
@@ -2051,7 +2051,7 @@ function CardFormSheet({ onClose, onAdd, onSave, editCard }) {
   );
   return (
     <div
-      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 10, borderRadius: "24px", overflow: "hidden" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
       onClick={onClose}
     >
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px" }}>
@@ -2164,7 +2164,7 @@ function AccountFormSheet({ cards, onClose, onAdd, onSave, editAccount }) {
 
   return (
     <div
-      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 10, borderRadius: "24px", overflow: "hidden" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
       onClick={onClose}
     >
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px", maxHeight: "85vh", overflowY: "auto" }}>
@@ -2278,7 +2278,7 @@ function FixedFormSheet({ cards, onClose, onAdd, onSave, editFixed }) {
 
   return (
     <div
-      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 10, borderRadius: "24px", overflow: "hidden" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
       onClick={onClose}
     >
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px" }}>
@@ -2408,7 +2408,7 @@ function LoanFormSheet({ accounts, onClose, onAdd, onSave, editLoan }) {
 
   return (
     <div
-      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 10, borderRadius: "24px", overflow: "hidden" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
       onClick={onClose}
     >
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px" }}>
@@ -2565,7 +2565,7 @@ function InstallmentFormSheet({ cards, onClose, onAdd, onSave, editInstallment }
 
   return (
     <div
-      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 10, borderRadius: "24px", overflow: "hidden" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", zIndex: 50 }}
       onClick={onClose}
     >
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", borderRadius: "16px 16px 0 0", padding: "16px" }}>
@@ -3156,10 +3156,13 @@ export default function BudgetAppPrototype() {
         border: `1px solid ${C.border}`,
         borderRadius: "20px",
         fontFamily: "'Pretendard', system-ui, -apple-system, sans-serif",
+        height: "100vh",
+        maxHeight: "100vh",
+        overflow: "hidden",
       }}
     >
       <style>{`@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');`}</style>
-      <div style={{ background: C.bg, borderRadius: "20px", overflow: "hidden", position: "relative", minHeight: "600px", display: "flex", flexDirection: "column" }}>
+      <div style={{ background: C.bg, borderRadius: "20px", overflow: "hidden", position: "relative", height: "100%", display: "flex", flexDirection: "column" }}>
         <Header
           tabKey={tab}
           title={title}
@@ -3176,7 +3179,18 @@ export default function BudgetAppPrototype() {
           }
           right={
             view === "transactions" ? (
-              <Search size={18} color="#fff" />
+              <>
+                <Search size={18} color="#fff" />
+                <button
+                  onClick={() => {
+                    setEditingTx(null);
+                    setShowAdd(true);
+                  }}
+                  style={{ display: "flex" }}
+                >
+                  <Plus size={20} color="#fff" />
+                </button>
+              </>
             ) : view === "fixed" ? (
               <SlidersHorizontal size={18} color="#fff" />
             ) : null
@@ -3272,7 +3286,7 @@ export default function BudgetAppPrototype() {
         )}
         {showResetConfirm && (
           <div
-            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20, borderRadius: "20px" }}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}
             onClick={() => setShowResetConfirm(false)}
           >
             <div
