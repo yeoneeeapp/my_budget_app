@@ -75,7 +75,7 @@ const C = {
   pBlue2: "#3182F6",
 };
 
-const EXPENSE_CATEGORIES = ["식비", "배달", "자동차", "교통", "카페", "생활", "문화·여가", "주거·통신", "의복·미용", "데이트", "금융·보험", "구독비", "운동", "의료", "선물", "가족", "여행"].sort((a, b) => a.localeCompare(b, "ko"));
+const EXPENSE_CATEGORIES = ["식비", "배달", "자동차", "교통", "카페", "생활", "문화·여가", "주거·통신", "의복·미용", "데이트", "금융·보험", "구독비", "운동", "의료", "선물", "가족", "여행", "대출상환"].sort((a, b) => a.localeCompare(b, "ko"));
 const INCOME_CATEGORIES = ["급여", "부수입", "금융", "기타", "보험금", "주식"].sort((a, b) => a.localeCompare(b, "ko"));
 
 const GREEN_RAMP = ["#3182F6", "#5B9BF8", "#85B4FA", "#AECDFB", "#1B64C7", "#0F4A9C"];
@@ -104,6 +104,7 @@ const CAT_COLORS = {
   가족: GREEN_RAMP[3],
   이체: GREEN_RAMP[4],
   여행: GREEN_RAMP[5],
+  대출상환: GREEN_RAMP[0],
 };
 
 const CAT_ICON = {
@@ -131,6 +132,7 @@ const CAT_ICON = {
   가족: Users,
   이체: ArrowRightLeft,
   여행: Plane,
+  대출상환: Landmark,
 };
 
 const won = (n) => Math.round(Math.abs(n)).toLocaleString("ko-KR") + "원";
@@ -1991,7 +1993,7 @@ function FixedDetailScreen({ fixed, txAll, onEdit }) {
 /* ---------------------------------------------------------- */
 /* Quick add sheet                                                */
 /* ---------------------------------------------------------- */
-function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, accounts, editTx, defaultDate }) {
+function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, onLoanRepay, cards, accounts, loans, editTx, defaultDate }) {
   const [form, setForm] = useState(
     editTx
       ? {
@@ -2005,6 +2007,7 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
           toAccount: editTx.toAccount || (accounts[0] ? accounts[0].name : ""),
           transferFrom: editTx.transferFrom || "현금",
           transferTo: editTx.transferTo || (accounts[0] ? accounts[0].name : ""),
+          loanId: editTx.loanId || (loans[0] ? loans[0].id : ""),
           amount: String(editTx.originalAmount ?? editTx.amount ?? ""),
           discount: editTx.discount ? String(editTx.discount) : "",
           memo: editTx.memo === "-" ? "" : editTx.memo,
@@ -2020,6 +2023,7 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
           toAccount: accounts[0] ? accounts[0].name : "",
           transferFrom: "현금",
           transferTo: accounts[0] ? accounts[0].name : "",
+          loanId: loans[0] ? loans[0].id : "",
           amount: "",
           discount: "",
           memo: "",
@@ -2141,6 +2145,19 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
               ))}
             </select>
           )}
+          {form.type === "expense" && form.category === "대출상환" && (
+            <div>
+              <select value={form.loanId} onChange={(e) => setForm({ ...form, loanId: e.target.value })} style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px", width: "100%" }}>
+                {loans.length === 0 && <option value="">등록된 대출이 없어요</option>}
+                {loans.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name} (잔액 {won(l.balance)})
+                  </option>
+                ))}
+              </select>
+              {!editTx && <div style={{ fontSize: "11px", color: C.inkMute, marginTop: "4px" }}>입력한 금액만큼 이 대출의 잔액이 줄어들어요.</div>}
+            </div>
+          )}
           {form.type === "expense" && (
             <div className="flex gap-2">
               {PAYMENT_TYPES.map((p) => (
@@ -2235,6 +2252,9 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
               const txData = { id: editTx ? editTx.id : "t" + Date.now(), ...form, method, amount: final, originalAmount: amount, discount, memo: form.memo || "-" };
               if (editTx) onSave(txData);
               else onAdd(txData);
+              if (!editTx && form.type === "expense" && form.category === "대출상환" && form.loanId) {
+                onLoanRepay(form.loanId, final);
+              }
               onClose();
             }}
             style={{ background: C.accent, color: "#fff", borderRadius: "8px", padding: "10px", fontSize: "14px", fontWeight: 700, marginTop: "4px" }}
@@ -3120,6 +3140,10 @@ export default function BudgetAppPrototype() {
     );
   }
 
+  function applyLoanRepayment(loanId, amount) {
+    setLoans((prev) => prev.map((l) => (l.id === loanId ? { ...l, balance: Math.max(0, l.balance - amount) } : l)));
+  }
+
   function loanInterestTxObj(loan, monthKey, accounts2) {
     const account = accounts2.find((a) => a.id === loan.linkedAccountId);
     return {
@@ -3569,6 +3593,7 @@ export default function BudgetAppPrototype() {
           <AddSheet
             cards={cards}
             accounts={accounts}
+            loans={loans}
             editTx={editingTx}
             defaultDate={TODAY}
             onClose={() => {
@@ -3584,6 +3609,7 @@ export default function BudgetAppPrototype() {
             onSave={(updatedTx) => saveEditedTx(updatedTx, month)}
             onDelete={(txId) => deleteTxGlobal(txId, month)}
             onTransfer={applyTransfer}
+            onLoanRepay={applyLoanRepayment}
           />
         )}
         {showAddCard && (
