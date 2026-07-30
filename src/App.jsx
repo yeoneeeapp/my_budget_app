@@ -266,7 +266,7 @@ const initialFixed = [];
 const cardsSeed = [];
 
 const CARD_ISSUERS = ["삼성카드", "우리카드", "신한카드", "현대카드", "국민카드"].sort((a, b) => a.localeCompare(b, "ko"));
-const PAYMENT_TYPES = ["카드", "현금"];
+const PAYMENT_TYPES = ["카드", "현금", "통장"];
 const CARD_KINDS = ["신용", "체크"];
 
 const accountsSeed = [];
@@ -2017,7 +2017,7 @@ function FixedDetailScreen({ fixed, txAll, onEdit }) {
 /* ---------------------------------------------------------- */
 /* Quick add sheet                                                */
 /* ---------------------------------------------------------- */
-function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, accounts, loans, editTx, defaultDate }) {
+function AddSheet({ onClose, onAdd, onSave, onDelete, cards, accounts, loans, editTx, defaultDate }) {
   const [form, setForm] = useState(
     editTx
       ? {
@@ -2025,9 +2025,10 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
           type: editTx.type,
           category: editTx.category,
           recurring: editTx.recurring,
-          paymentType: editTx.paymentType || (editTx.method === "현금" ? "현금" : "카드"),
+          paymentType: editTx.paymentType || (editTx.method === "현금" ? "현금" : editTx.fromAccount ? "통장" : "카드"),
           cardKind: editTx.cardKind || "신용",
           cardIssuer: editTx.method === "현금" || editTx.method === "계좌" ? cards[0]?.name || "" : editTx.method,
+          fromAccount: editTx.fromAccount || (accounts[0] ? accounts[0].name : ""),
           toAccount: editTx.toAccount || (accounts[0] ? accounts[0].name : ""),
           transferFrom: editTx.transferFrom || "현금",
           transferTo: editTx.transferTo || (accounts[0] ? accounts[0].name : ""),
@@ -2044,6 +2045,7 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
           paymentType: "카드",
           cardKind: "신용",
           cardIssuer: cards[0] ? cards[0].name : "",
+          fromAccount: accounts[0] ? accounts[0].name : "",
           toAccount: accounts[0] ? accounts[0].name : "",
           transferFrom: "현금",
           transferTo: accounts[0] ? accounts[0].name : "",
@@ -2224,6 +2226,16 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
               </select>
             </div>
           )}
+          {form.type === "expense" && form.paymentType === "통장" && (
+            <select value={form.fromAccount} onChange={(e) => setForm({ ...form, fromAccount: e.target.value })} style={{ border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", fontSize: "13px" }}>
+              {accounts.length === 0 && <option value="">등록된 통장이 없어요</option>}
+              {accounts.map((a) => (
+                <option key={a.id} value={a.name}>
+                  {a.name}에서 출금
+                </option>
+              ))}
+            </select>
+          )}
           <AmountInput placeholder="금액" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />
           {form.type === "expense" && form.paymentType === "카드" && (
             <AmountInput placeholder="카드할인 (없으면 비워두세요)" value={form.discount} onChange={(v) => setForm({ ...form, discount: v })} />
@@ -2266,13 +2278,12 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, account
                 };
                 if (editTx) onSave(txData);
                 else onAdd(txData);
-                if (!editTx) onTransfer(form.transferFrom, form.transferTo, amount);
                 onClose();
                 return;
               }
               const discount = form.type === "expense" && form.paymentType === "카드" ? parseInt(form.discount, 10) || 0 : 0;
               const final = Math.max(0, amount - discount);
-              const method = form.type === "income" ? "계좌" : form.paymentType === "현금" ? "현금" : form.cardIssuer;
+              const method = form.type === "income" ? "계좌" : form.paymentType === "현금" ? "현금" : form.paymentType === "통장" ? "계좌" : form.cardIssuer;
               const txData = { id: editTx ? editTx.id : "t" + Date.now(), ...form, method, amount: final, originalAmount: amount, discount, memo: form.memo || "-" };
               if (editTx) onSave(txData);
               else onAdd(txData);
@@ -3105,8 +3116,14 @@ export default function BudgetAppPrototype() {
     if (t.type === "transfer" && !String(t.id).startsWith("sv")) {
       // 자동 생성된 적금 이체(sv로 시작)는 애초에 잔액에 반영 안 했으니 되돌리지도 않아요.
       applyTransfer(t.transferTo, t.transferFrom, t.amount); // from/to를 바꿔서 호출하면 원래 효과가 되돌아가요.
-    } else if (t.type === "expense" && t.category === "대출상환" && t.loanId) {
+      return;
+    }
+    if (t.type !== "expense") return;
+    if (t.category === "대출상환" && t.loanId) {
       setLoans((prev) => prev.map((l) => (l.id === t.loanId ? { ...l, balance: l.balance + t.amount } : l)));
+    }
+    if (t.paymentType === "통장" && t.fromAccount) {
+      applyTransfer("", t.fromAccount, t.amount); // 빠져나갔던 금액을 다시 채워줘요.
     }
   }
 
@@ -3114,8 +3131,14 @@ export default function BudgetAppPrototype() {
     if (!t) return;
     if (t.type === "transfer" && !String(t.id).startsWith("sv")) {
       applyTransfer(t.transferFrom, t.transferTo, t.amount);
-    } else if (t.type === "expense" && t.category === "대출상환" && t.loanId) {
+      return;
+    }
+    if (t.type !== "expense") return;
+    if (t.category === "대출상환" && t.loanId) {
       applyLoanRepayment(t.loanId, t.amount);
+    }
+    if (t.paymentType === "통장" && t.fromAccount) {
+      applyTransfer(t.fromAccount, "", t.amount); // 그 통장에서 금액만큼 빠져나가요.
     }
   }
 
@@ -3650,13 +3673,10 @@ export default function BudgetAppPrototype() {
               setFixed((prev) =>
                 prev.map((f) => (f.name === newTx.memo && f.unusedChecked ? { ...f, unusedChecked: false, lastUsedDays: 0 } : f))
               );
-              if (newTx.type === "expense" && newTx.category === "대출상환" && newTx.loanId) {
-                applyLoanRepayment(newTx.loanId, newTx.amount);
-              }
+              applyTxEffect(newTx);
             }}
             onSave={(updatedTx) => saveEditedTx(updatedTx, month)}
             onDelete={(txId) => deleteTxGlobal(txId, month)}
-            onTransfer={applyTransfer}
           />
         )}
         {showAddCard && (
