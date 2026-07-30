@@ -2973,7 +2973,7 @@ function InstallmentFormSheet({ cards, onClose, onAdd, onSave, editInstallment }
 /* ---------------------------------------------------------- */
 /* App shell                                                     */
 /* ---------------------------------------------------------- */
-export default function BudgetAppPrototype() {
+function BudgetAppPrototype() {
   const [tab, setTab] = useState("home");
   const [view, setView] = useState("home");
   const [month, setMonth] = useState(CURRENT_MONTH);
@@ -3016,12 +3016,20 @@ export default function BudgetAppPrototype() {
         const result = raw ? { value: raw } : null;
         if (!cancelled && result && result.value) {
           const saved = JSON.parse(result.value);
-          if (saved.txAll) setTxAll(saved.txAll);
-          if (saved.fixed) setFixed(saved.fixed);
-          if (saved.cards) setCards(saved.cards);
-          if (saved.accounts) setAccounts(saved.accounts);
-          if (saved.loans) setLoans(saved.loans);
-          if (saved.installments) setInstallments(saved.installments);
+          const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
+          const isArr = (v) => Array.isArray(v);
+          if (isObj(saved.txAll)) {
+            const cleanTxAll = {};
+            Object.keys(saved.txAll).forEach((k) => {
+              cleanTxAll[k] = isArr(saved.txAll[k]) ? saved.txAll[k] : [];
+            });
+            setTxAll(cleanTxAll);
+          }
+          if (isArr(saved.fixed)) setFixed(saved.fixed);
+          if (isArr(saved.cards)) setCards(saved.cards);
+          if (isArr(saved.accounts)) setAccounts(saved.accounts);
+          if (isArr(saved.loans)) setLoans(saved.loans);
+          if (isArr(saved.installments)) setInstallments(saved.installments);
         }
       } catch (e) {
         // 저장된 데이터가 아직 없으면 기본 예시 데이터로 시작
@@ -3768,5 +3776,83 @@ export default function BudgetAppPrototype() {
         )}
       </div>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------- */
+/* 에러 바운더리: 어디서 문제가 생기든 화면이 완전히 까맣게/하얗게 비는 대신,
+   복구할 수 있는 안내 화면을 보여줘요.                                  */
+/* ---------------------------------------------------------- */
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: error && error.message ? error.message : "알 수 없는 오류" };
+  }
+  componentDidCatch(error, info) {
+    // 콘솔에라도 남겨서 나중에 디버깅할 수 있게 해요.
+    console.error("BudgetApp crashed:", error, info);
+  }
+  handleReset = () => {
+    try {
+      localStorage.removeItem("app-data");
+    } catch (e) {
+      // 무시
+    }
+    window.location.reload();
+  };
+  handleRetry = () => {
+    this.setState({ hasError: false, message: "" });
+  };
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            maxWidth: "380px",
+            margin: "0 auto",
+            minHeight: "400px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#FFFFFF",
+            border: "1px solid #F2F4F6",
+            borderRadius: "20px",
+            padding: "24px",
+            fontFamily: "'Pretendard', system-ui, -apple-system, sans-serif",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px", color: "#191F28" }}>화면을 불러오다 문제가 생겼어요</div>
+          <div style={{ fontSize: "13px", color: "#8B95A1", marginBottom: "20px" }}>
+            저장된 데이터에 문제가 있을 수 있어요. 아래 버튼으로 다시 시도하거나, 그래도 안 되면 데이터를 초기화해보세요.
+          </div>
+          <button
+            onClick={this.handleRetry}
+            style={{ width: "100%", background: "#EBF2FE", color: "#3182F6", borderRadius: "12px", padding: "12px", fontSize: "14px", fontWeight: 700, marginBottom: "10px", border: "none" }}
+          >
+            다시 시도
+          </button>
+          <button
+            onClick={this.handleReset}
+            style={{ width: "100%", background: "#FDEEEF", color: "#F04452", borderRadius: "12px", padding: "12px", fontSize: "14px", fontWeight: 700, border: "none" }}
+          >
+            데이터 초기화하고 새로고침
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <BudgetAppPrototype />
+    </AppErrorBoundary>
   );
 }
