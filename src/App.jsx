@@ -3100,7 +3100,29 @@ export default function BudgetAppPrototype() {
     setTxAll((prev) => ({ ...prev, [monthKey]: [newTx, ...(prev[monthKey] || [])] }));
   }
 
+  function reverseTxEffect(t) {
+    if (!t) return;
+    if (t.type === "transfer" && !String(t.id).startsWith("sv")) {
+      // 자동 생성된 적금 이체(sv로 시작)는 애초에 잔액에 반영 안 했으니 되돌리지도 않아요.
+      applyTransfer(t.transferTo, t.transferFrom, t.amount); // from/to를 바꿔서 호출하면 원래 효과가 되돌아가요.
+    } else if (t.type === "expense" && t.category === "대출상환" && t.loanId) {
+      setLoans((prev) => prev.map((l) => (l.id === t.loanId ? { ...l, balance: l.balance + t.amount } : l)));
+    }
+  }
+
+  function applyTxEffect(t) {
+    if (!t) return;
+    if (t.type === "transfer" && !String(t.id).startsWith("sv")) {
+      applyTransfer(t.transferFrom, t.transferTo, t.amount);
+    } else if (t.type === "expense" && t.category === "대출상환" && t.loanId) {
+      applyLoanRepayment(t.loanId, t.amount);
+    }
+  }
+
   function saveEditedTx(updatedTx, originalMonthKey) {
+    const oldTx = (txAll[originalMonthKey] || []).find((t) => t.id === updatedTx.id);
+    reverseTxEffect(oldTx);
+    applyTxEffect(updatedTx);
     const newMonthKey = updatedTx.date.slice(0, 7);
     setTxAll((prev) => {
       const updated = { ...prev };
@@ -3111,6 +3133,8 @@ export default function BudgetAppPrototype() {
   }
 
   function deleteTxGlobal(txId, monthKey) {
+    const existing = (txAll[monthKey] || []).find((t) => t.id === txId);
+    reverseTxEffect(existing);
     setTxAll((prev) => ({ ...prev, [monthKey]: (prev[monthKey] || []).filter((t) => t.id !== txId) }));
   }
 
