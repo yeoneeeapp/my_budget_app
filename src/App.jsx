@@ -850,7 +850,7 @@ function MonthlyListView({ txAll, goMonth }) {
   );
 }
 
-function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth, showSearch, searchQuery, setSearchQuery, onEditTx }) {
+function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth, showSearch, searchQuery, setSearchQuery, onEditTx, onDeleteTx, onCopyTx }) {
   const [viewMode, setViewMode] = useState("일별");
 
   const filtered = tx.filter((t) => {
@@ -1034,21 +1034,10 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
                           {t.canceled && <Check size={10} color="#fff" strokeWidth={3} />}
                         </button>
                       )}
-                      <button
-                        onClick={() =>
-                          setTx((prev) => {
-                            const idx = prev.findIndex((p) => p.id === t.id);
-                            const copy = { ...t, id: "t" + Date.now(), canceled: false };
-                            const next = [...prev];
-                            next.splice(idx + 1, 0, copy);
-                            return next;
-                          })
-                        }
-                        style={{ color: C.inkMute }}
-                      >
+                      <button onClick={() => onCopyTx(t)} style={{ color: C.inkMute }}>
                         <Copy size={13} />
                       </button>
-                      <button onClick={() => setTx((prev) => prev.filter((p) => p.id !== t.id))} style={{ color: C.inkMute }}>
+                      <button onClick={() => onDeleteTx(t)} style={{ color: C.inkMute }}>
                         <Trash2 size={13} />
                       </button>
                     </div>
@@ -3459,6 +3448,12 @@ function BudgetAppPrototype() {
         onEditTx={(t) => {
           setEditingTx(t);
           setShowAdd(true);
+        }}
+        onDeleteTx={(t) => deleteTxGlobal(t.id, t.date.slice(0, 7))}
+        onCopyTx={(t) => {
+          const copy = { ...t, id: "t" + Date.now(), canceled: false };
+          addTxSmart(copy);
+          applyTxEffect(copy);
         }}
       />
     );
