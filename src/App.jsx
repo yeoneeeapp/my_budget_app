@@ -1505,6 +1505,15 @@ function LoanDetailScreen({ loan, txAll, accounts, onPayoff, onEdit }) {
     return { m, amt };
   }).filter((h) => h.amt > 0);
 
+  const repaymentHistory = [];
+  MONTHS.forEach((m) => {
+    (txAll[m] || [])
+      .filter((t) => t.type === "expense" && !t.canceled && t.category === "대출상환" && t.loanId === loan.id)
+      .forEach((t) => repaymentHistory.push(t));
+  });
+  repaymentHistory.sort((a, b) => (a.date < b.date ? 1 : -1));
+  const repaidTotal = repaymentHistory.reduce((s, t) => s + t.amount, 0);
+
   return (
     <div style={{ padding: "12px 16px 16px" }}>
       <div style={{ background: C.card, borderRadius: "12px", padding: "14px", marginBottom: "14px", border: `1px solid ${C.border}` }}>
@@ -1560,6 +1569,21 @@ function LoanDetailScreen({ loan, txAll, accounts, onPayoff, onEdit }) {
         ))}
         {interestHistory.length === 0 && <div style={{ textAlign: "center", color: C.inkMute, fontSize: "13px", padding: "16px 0" }}>이자 납부 내역이 없어요.</div>}
         <div style={{ fontSize: "11px", color: C.inkMute, marginTop: "6px" }}>내역 탭에서 이 대출의 이자 거래를 수정하면 여기에도 바로 반영돼요.</div>
+      </div>
+
+      <div className="flex items-center justify-between" style={{ marginBottom: "8px" }}>
+        <span style={{ fontSize: "13px", fontWeight: 700, color: C.inkSoft }}>원금 상환 내역</span>
+        {repaidTotal > 0 && <span style={{ fontSize: "12px", color: C.accent, fontWeight: 700 }}>누적 {won(repaidTotal)}</span>}
+      </div>
+      <div style={{ marginBottom: "16px" }}>
+        {repaymentHistory.map((t) => (
+          <div key={t.id} className="flex items-center justify-between" style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+            <span style={{ fontSize: "13px" }}>{t.date}</span>
+            <span style={{ fontSize: "13px" }}>{won(t.amount)}</span>
+          </div>
+        ))}
+        {repaymentHistory.length === 0 && <div style={{ textAlign: "center", color: C.inkMute, fontSize: "13px", padding: "16px 0" }}>원금 상환 내역이 없어요.</div>}
+        <div style={{ fontSize: "11px", color: C.inkMute, marginTop: "6px" }}>거래 추가에서 지출 · 대출상환 카테고리로 입력하면 여기에 반영돼요.</div>
       </div>
 
       <button
@@ -1993,7 +2017,7 @@ function FixedDetailScreen({ fixed, txAll, onEdit }) {
 /* ---------------------------------------------------------- */
 /* Quick add sheet                                                */
 /* ---------------------------------------------------------- */
-function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, onLoanRepay, cards, accounts, loans, editTx, defaultDate }) {
+function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, cards, accounts, loans, editTx, defaultDate }) {
   const [form, setForm] = useState(
     editTx
       ? {
@@ -2252,9 +2276,6 @@ function AddSheet({ onClose, onAdd, onSave, onDelete, onTransfer, onLoanRepay, c
               const txData = { id: editTx ? editTx.id : "t" + Date.now(), ...form, method, amount: final, originalAmount: amount, discount, memo: form.memo || "-" };
               if (editTx) onSave(txData);
               else onAdd(txData);
-              if (!editTx && form.type === "expense" && form.category === "대출상환" && form.loanId) {
-                onLoanRepay(form.loanId, final);
-              }
               onClose();
             }}
             style={{ background: C.accent, color: "#fff", borderRadius: "8px", padding: "10px", fontSize: "14px", fontWeight: 700, marginTop: "4px" }}
@@ -3605,11 +3626,13 @@ export default function BudgetAppPrototype() {
               setFixed((prev) =>
                 prev.map((f) => (f.name === newTx.memo && f.unusedChecked ? { ...f, unusedChecked: false, lastUsedDays: 0 } : f))
               );
+              if (newTx.type === "expense" && newTx.category === "대출상환" && newTx.loanId) {
+                applyLoanRepayment(newTx.loanId, newTx.amount);
+              }
             }}
             onSave={(updatedTx) => saveEditedTx(updatedTx, month)}
             onDelete={(txId) => deleteTxGlobal(txId, month)}
             onTransfer={applyTransfer}
-            onLoanRepay={applyLoanRepayment}
           />
         )}
         {showAddCard && (
