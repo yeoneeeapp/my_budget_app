@@ -35,6 +35,7 @@ import {
   Stethoscope,
   Users,
   ArrowRightLeft,
+  Plane,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -74,7 +75,7 @@ const C = {
   pBlue2: "#3182F6",
 };
 
-const EXPENSE_CATEGORIES = ["식비", "배달", "자동차", "교통", "카페", "생활", "문화·여가", "주거·통신", "의복·미용", "데이트", "금융·보험", "구독비", "운동", "의료", "선물", "가족"].sort((a, b) => a.localeCompare(b, "ko"));
+const EXPENSE_CATEGORIES = ["식비", "배달", "자동차", "교통", "카페", "생활", "문화·여가", "주거·통신", "의복·미용", "데이트", "금융·보험", "구독비", "운동", "의료", "선물", "가족", "여행"].sort((a, b) => a.localeCompare(b, "ko"));
 const INCOME_CATEGORIES = ["급여", "부수입", "금융", "기타", "보험금", "주식"].sort((a, b) => a.localeCompare(b, "ko"));
 
 const GREEN_RAMP = ["#3182F6", "#5B9BF8", "#85B4FA", "#AECDFB", "#1B64C7", "#0F4A9C"];
@@ -102,6 +103,7 @@ const CAT_COLORS = {
   선물: GREEN_RAMP[2],
   가족: GREEN_RAMP[3],
   이체: GREEN_RAMP[4],
+  여행: GREEN_RAMP[5],
 };
 
 const CAT_ICON = {
@@ -128,6 +130,7 @@ const CAT_ICON = {
   선물: Gift,
   가족: Users,
   이체: ArrowRightLeft,
+  여행: Plane,
 };
 
 const won = (n) => Math.round(Math.abs(n)).toLocaleString("ko-KR") + "원";
@@ -409,6 +412,7 @@ function BottomNav({ tab, setTab }) {
 /* Home                                                          */
 /* ---------------------------------------------------------- */
 function HomeScreen({ tx, txAll, month, cards, loans, accounts, goTransactions, goCards, saveState, onReset }) {
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const income = tx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const expense = tx.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
   const net = income - expense;
@@ -567,13 +571,35 @@ function HomeScreen({ tx, txAll, month, cards, loans, accounts, goTransactions, 
         </div>
         <div className="flex flex-col gap-1.5">
           {categoryData.map((d) => (
-            <div key={d.name} className="flex items-center gap-1.5" style={{ fontSize: "12px", color: C.ink }}>
+            <button
+              key={d.name}
+              onClick={() => setSelectedCategory(selectedCategory === d.name ? null : d.name)}
+              className="flex items-center gap-1.5"
+              style={{ fontSize: "12px", color: selectedCategory === d.name ? C.accent : C.ink, fontWeight: selectedCategory === d.name ? 700 : 400 }}
+            >
               <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: CAT_COLORS[d.name] || C.gold, display: "inline-block" }} />
               {d.name} {Math.round((d.value / (expense || 1)) * 100)}%
-            </div>
+            </button>
           ))}
         </div>
       </div>
+      {selectedCategory && (
+        <div style={{ marginTop: "12px", borderTop: `1px solid ${C.border}`, paddingTop: "10px" }}>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: C.inkSoft, marginBottom: "6px" }}>{selectedCategory} 내역</div>
+          {tx
+            .filter((t) => t.type === "expense" && !t.canceled && t.category === selectedCategory)
+            .sort((a, b) => (a.date < b.date ? 1 : -1))
+            .map((t) => (
+              <div key={t.id} className="flex items-center justify-between" style={{ padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 600 }}>{t.memo}</div>
+                  <div style={{ fontSize: "11px", color: C.inkMute }}>{t.date.slice(5)} · {t.method}</div>
+                </div>
+                <span style={{ fontSize: "13px", fontWeight: 600 }}>{won(t.amount)}</span>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -619,22 +645,30 @@ function SummaryBar({ tx }) {
       <div style={{ width: "1px", height: "28px", background: C.border }} />
       <div style={{ flex: 1, textAlign: "center" }}>
         <div style={{ fontSize: "11px", color: C.inkSoft, marginBottom: "2px" }}>합계</div>
-        <div style={{ fontSize: "13px", fontWeight: 700 }}>{won(income - expense)}</div>
+        <div style={{ fontSize: "13px", fontWeight: 700, color: income - expense < 0 ? C.danger : C.ink }}>{wonSigned(income - expense)}</div>
       </div>
     </div>
   );
+}
+
+function compactWon(n) {
+  const v = Math.round(Math.abs(n));
+  if (v >= 10000) return (v / 10000).toFixed(1).replace(/\.0$/, "") + "만";
+  return v.toLocaleString("ko-KR");
 }
 
 function CalendarView({ month, tx }) {
   const [y, m] = month.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const firstWeekday = new Date(y, m - 1, 1).getDay();
+  const [selectedDay, setSelectedDay] = useState(null);
   const byDay = {};
   (tx || []).forEach((t) => {
     if (!t || !t.date) return;
     const d = parseInt(t.date.slice(8, 10), 10);
     if (!d || Number.isNaN(d)) return;
-    byDay[d] = byDay[d] || { income: 0, expense: 0 };
+    byDay[d] = byDay[d] || { income: 0, expense: 0, items: [] };
+    byDay[d].items.push(t);
     if (t.type === "income") byDay[d].income += t.amount || 0;
     else if (!t.canceled) byDay[d].expense += t.amount || 0;
   });
@@ -642,6 +676,8 @@ function CalendarView({ month, tx }) {
   const cells = [];
   for (let i = 0; i < firstWeekday; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const selectedInfo = selectedDay ? byDay[selectedDay] : null;
 
   return (
     <div>
@@ -656,23 +692,58 @@ function CalendarView({ month, tx }) {
         {cells.map((d, i) => {
           if (!d) return <div key={i} />;
           const info = byDay[d];
+          const isSelected = selectedDay === d;
           return (
-            <div key={i} style={{ minHeight: "52px", padding: "3px 2px", borderRadius: "8px" }}>
-              <div style={{ fontSize: "11px", color: C.ink, textAlign: "center", marginBottom: "2px" }}>{d}</div>
+            <button
+              key={i}
+              onClick={() => setSelectedDay(isSelected ? null : d)}
+              style={{
+                minHeight: "52px",
+                padding: "3px 2px",
+                borderRadius: "8px",
+                background: isSelected ? C.accentSoft : "transparent",
+                border: isSelected ? `1px solid ${C.accent}` : "1px solid transparent",
+              }}
+            >
+              <div style={{ fontSize: "11px", color: C.ink, textAlign: "center", marginBottom: "2px", fontWeight: isSelected ? 700 : 400 }}>{d}</div>
               {info && (
                 <div style={{ textAlign: "center" }}>
                   {info.income > 0 && (
-                    <div style={{ fontSize: "9px", color: C.accent, fontWeight: 600, lineHeight: 1.3 }}>{Math.round(info.income / 1000)}천</div>
+                    <div style={{ fontSize: "9px", color: C.accent, fontWeight: 600, lineHeight: 1.3 }}>+{compactWon(info.income)}</div>
                   )}
                   {info.expense > 0 && (
-                    <div style={{ fontSize: "9px", color: C.danger, fontWeight: 600, lineHeight: 1.3 }}>{Math.round(info.expense / 1000)}천</div>
+                    <div style={{ fontSize: "9px", color: C.danger, fontWeight: 600, lineHeight: 1.3 }}>-{compactWon(info.expense)}</div>
                   )}
                 </div>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
+
+      {selectedDay && (
+        <div style={{ marginTop: "14px", borderTop: `1px solid ${C.border}`, paddingTop: "10px" }}>
+          <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "8px" }}>
+            {m}월 {selectedDay}일 내역
+          </div>
+          {(!selectedInfo || selectedInfo.items.length === 0) && (
+            <div style={{ fontSize: "13px", color: C.inkMute, padding: "12px 0", textAlign: "center" }}>이 날의 내역이 없어요.</div>
+          )}
+          {selectedInfo &&
+            selectedInfo.items.map((t) => (
+              <div key={t.id} className="flex items-center justify-between" style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, textDecoration: t.canceled ? "line-through" : "none" }}>{t.memo}</div>
+                  <div style={{ fontSize: "11px", color: C.inkMute }}>{t.type === "transfer" ? `${t.transferFrom} → ${t.transferTo}` : `${t.category} · ${t.method}`}</div>
+                </div>
+                <span style={{ fontSize: "13px", fontWeight: 600, color: t.type === "income" ? C.accent : C.ink }}>
+                  {t.type === "income" ? "+" : t.type === "transfer" ? "" : "-"}
+                  {won(t.amount)}
+                </span>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1201,6 +1272,7 @@ function LoansListScreen({ loans, setView, setSelectedLoan, onAddLoan }) {
 
 function CardDetailScreen({ card, tx, txAll, onEdit }) {
   const [mode, setMode] = useState("이번달");
+  const [expandedMonth, setExpandedMonth] = useState(null);
   if (!card) return null;
   const cardTx = tx.filter((t) => t.method === card.method).sort((a, b) => (a.date < b.date ? 1 : -1));
   const total = cardTx.filter((t) => t.type === "expense" && !t.canceled).reduce((s, t) => s + t.amount, 0);
@@ -1209,7 +1281,13 @@ function CardDetailScreen({ card, tx, txAll, onEdit }) {
 
   const monthlyTotals = GENERATED_MONTHS.map((m) => {
     const items = (txAll[m] || []).filter((t) => t.type === "expense" && !t.canceled && t.method === card.method);
-    return { m, total: items.reduce((s, t) => s + t.amount, 0), items };
+    const discountItems = items.filter((t) => t.discount > 0);
+    return {
+      m,
+      total: items.reduce((s, t) => s + t.amount, 0),
+      discountTotal: discountItems.reduce((s, t) => s + t.discount, 0),
+      discountItems,
+    };
   });
 
   return (
@@ -1293,9 +1371,31 @@ function CardDetailScreen({ card, tx, txAll, onEdit }) {
       {mode === "월별" && (
         <div className="flex flex-col gap-2">
           {monthlyTotals.map((mt) => (
-            <div key={mt.m} className="flex items-center justify-between" style={{ background: C.card, borderRadius: "12px", padding: "12px 14px", border: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: "13px", fontWeight: 700 }}>{mt.m.slice(5)}월</span>
-              <span style={{ fontSize: "14px", fontWeight: 700 }}>{won(mt.total)}</span>
+            <div key={mt.m} style={{ background: C.card, borderRadius: "12px", padding: "12px 14px", border: `1px solid ${C.border}` }}>
+              <button
+                onClick={() => setExpandedMonth(expandedMonth === mt.m ? null : mt.m)}
+                className="flex items-center justify-between w-full"
+              >
+                <span style={{ fontSize: "13px", fontWeight: 700 }}>{mt.m.slice(5)}월</span>
+                <div className="flex items-center gap-2">
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: "14px", fontWeight: 700 }}>{won(mt.total)}</div>
+                    {mt.discountTotal > 0 && <div style={{ fontSize: "11px", color: C.accent }}>할인 {won(mt.discountTotal)}</div>}
+                  </div>
+                  <span style={{ color: C.inkMute, fontSize: "12px" }}>{expandedMonth === mt.m ? "▲" : "▼"}</span>
+                </div>
+              </button>
+              {expandedMonth === mt.m && (
+                <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${C.border}` }}>
+                  {mt.discountItems.length === 0 && <div style={{ fontSize: "12px", color: C.inkMute }}>이 달엔 카드 할인받은 내역이 없어요.</div>}
+                  {mt.discountItems.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between" style={{ padding: "4px 0" }}>
+                      <span style={{ fontSize: "12px", color: C.inkSoft }}>{t.date.slice(5)} · {t.memo}</span>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: C.accent }}>-{won(t.discount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1643,17 +1743,19 @@ function InstallmentDetailScreen({ installment, onEdit }) {
 /* ---------------------------------------------------------- */
 function FixedScreen({ fixed, txAll, setView, setSelectedFixed, onToggleUnused, onAddFixed }) {
   const [mode, setMode] = useState("결제일순");
-  const total = fixed.reduce((s, f) => s + f.amount, 0);
+  const total = fixed.filter((f) => !f.unusedChecked).reduce((s, f) => s + f.amount, 0);
 
   const byCategory = useMemo(() => {
     const map = {};
-    fixed.forEach((f) => {
-      (map[f.category] = map[f.category] || []).push(f);
-    });
+    fixed
+      .filter((f) => !f.unusedChecked)
+      .forEach((f) => {
+        (map[f.category] = map[f.category] || []).push(f);
+      });
     return map;
   }, [fixed]);
 
-  const sorted = [...fixed].sort((a, b) => a.dueDay - b.dueDay);
+  const sorted = [...fixed].filter((f) => !f.unusedChecked).sort((a, b) => a.dueDay - b.dueDay);
 
   const Row = (f) => {
     const suspicious = f.lastUsedDays >= 60;
@@ -1753,7 +1855,7 @@ function FixedScreen({ fixed, txAll, setView, setSelectedFixed, onToggleUnused, 
       </div>
 
       <div className="flex items-center justify-between" style={{ background: C.card, borderRadius: "12px", padding: "14px", marginBottom: "10px", border: `1px solid ${C.border}` }}>
-        <div style={{ fontSize: "12px", color: C.inkSoft }}>이번 달 총액 · {fixed.length}건</div>
+        <div style={{ fontSize: "12px", color: C.inkSoft }}>이번 달 총액 · {fixed.filter((f) => !f.unusedChecked).length}건</div>
         <div style={{ fontSize: "18px", fontWeight: 700 }}>{won(total)}</div>
       </div>
 
@@ -1780,9 +1882,9 @@ function FixedScreen({ fixed, txAll, setView, setSelectedFixed, onToggleUnused, 
 
       {mode === "미사용" && (
         <div className="flex flex-col gap-2">
-          {fixed.filter((f) => f.unusedChecked).map(Row)}
-          {fixed.filter((f) => f.unusedChecked).length === 0 && (
-            <div style={{ textAlign: "center", color: C.inkMute, fontSize: "13px", padding: "40px 0" }}>미사용으로 체크된 항목이 없어요.</div>
+          {fixed.filter((f) => f.category === "OTT/스트리밍" || f.category === "기타 구독" || f.category === "구독비").map(Row)}
+          {fixed.filter((f) => f.category === "OTT/스트리밍" || f.category === "기타 구독" || f.category === "구독비").length === 0 && (
+            <div style={{ textAlign: "center", color: C.inkMute, fontSize: "13px", padding: "40px 0" }}>구독비 카테고리 고정지출이 없어요.</div>
           )}
         </div>
       )}
