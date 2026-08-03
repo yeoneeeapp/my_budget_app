@@ -850,10 +850,19 @@ function MonthlyListView({ txAll, goMonth }) {
   );
 }
 
-function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth, showSearch, searchQuery, setSearchQuery, onEditTx, onDeleteTx, onCopyTx }) {
+function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, month, setMonth, showSearch, searchQuery, setSearchQuery, onEditTx, onDeleteTx, onCopyTx, fixed }) {
   const [viewMode, setViewMode] = useState("일별");
 
-  const filtered = tx.filter((t) => {
+  const unusedFixedIds = new Set((fixed || []).filter((f) => f.unusedChecked).map((f) => f.id));
+  const visibleTx = tx.filter((t) => {
+    if (!String(t.id).startsWith("fx")) return true;
+    // "fx<고정지출id>-<월>" 형식에서 고정지출id를 뽑아내서, 미사용 체크된 항목이면 화면에서도 확실히 숨겨요.
+    const withoutPrefix = String(t.id).slice(2);
+    const fixedId = withoutPrefix.slice(0, withoutPrefix.indexOf("-"));
+    return !unusedFixedIds.has(fixedId);
+  });
+
+  const filtered = visibleTx.filter((t) => {
     if (filter === "전체") return true;
     if (filter === "수입") return t.type === "income";
     if (filter === "지출") return t.type === "expense";
@@ -912,11 +921,11 @@ function TransactionsScreen({ tx, setTx, filter, setFilter, txAll, goMonth, mont
         ))}
       </div>
 
-      <SummaryBar tx={tx} />
+      <SummaryBar tx={visibleTx} />
 
       {viewMode === "월별" && <MonthlyListView txAll={txAll} goMonth={goMonth} />}
-      {viewMode === "주별" && <WeeklyView month={month} tx={tx} />}
-      {viewMode === "달력" && <CalendarView month={month} tx={tx} />}
+      {viewMode === "주별" && <WeeklyView month={month} tx={visibleTx} />}
+      {viewMode === "달력" && <CalendarView month={month} tx={visibleTx} />}
       {viewMode === "일별" && (
         <>
           <div className="flex gap-1.5" style={{ marginBottom: "12px", overflowX: "auto" }}>
@@ -3445,6 +3454,7 @@ function BudgetAppPrototype() {
         showSearch={showSearch}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        fixed={fixed}
         onEditTx={(t) => {
           setEditingTx(t);
           setShowAdd(true);
