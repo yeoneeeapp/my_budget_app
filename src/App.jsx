@@ -3369,14 +3369,14 @@ function BudgetAppPrototype() {
     if (newChecked) {
       setTxAll((prev) => {
         const updated = { ...prev };
-        updated[month] = (updated[month] || []).filter((t) => t.id !== "fx" + item.id + "-" + month);
+        updated[CURRENT_MONTH] = (updated[CURRENT_MONTH] || []).filter((t) => t.id !== "fx" + item.id + "-" + CURRENT_MONTH);
         return updated;
       });
     } else {
       setTxAll((prev) => {
         const updated = { ...prev };
-        const already = (updated[month] || []).some((t) => t.id === "fx" + item.id + "-" + month);
-        if (!already) updated[month] = [fixedTxObj(item, month), ...(updated[month] || [])];
+        const already = (updated[CURRENT_MONTH] || []).some((t) => t.id === "fx" + item.id + "-" + CURRENT_MONTH);
+        if (!already) updated[CURRENT_MONTH] = [fixedTxObj(item, CURRENT_MONTH), ...(updated[CURRENT_MONTH] || [])];
         return updated;
       });
     }
