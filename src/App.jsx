@@ -1216,7 +1216,7 @@ function AllAccountsHistoryScreen({ accounts, cards, txAll, month, setView, setS
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <div style={{ fontSize: "14px", fontWeight: 700 }}>{won(a.availableBalance)}</div>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: a.availableBalance < 0 ? C.danger : C.ink }}>{wonSigned(a.availableBalance)}</div>
               <span style={{ color: C.inkMute }}>›</span>
             </div>
           </button>
